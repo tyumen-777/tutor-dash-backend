@@ -1,3 +1,5 @@
+name: tutor-dash
+
 services:
   postgres:
     container_name: postgres
