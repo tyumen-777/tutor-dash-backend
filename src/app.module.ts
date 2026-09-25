@@ -1,9 +1,8 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { InfraModule } from './infra/infra.module';
 import { ConfigModule } from '@nestjs/config';
-import { validateEnv } from './config';
+import { ApiModule } from './api/api.module.js';
+import { validateEnv } from './config/index.js';
+import { InfraModule } from './infra/infra.module.js';
 
 @Module({
   imports: [
@@ -12,8 +11,9 @@ import { validateEnv } from './config';
       validate: validateEnv,
     }),
     InfraModule,
+    ApiModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  controllers: [],
+  providers: [],
 })
 export class AppModule {}
