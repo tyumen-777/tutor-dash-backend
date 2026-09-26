@@ -3,7 +3,10 @@ import { AppModule } from './app.module.js';
 import { Logger, StandardSchemaValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule } from '@nestjs/swagger';
-import { getSwaggerConfig } from './config/swagger.config.js';
+import {
+  getSwaggerConfig,
+  getSwaggerDocumentOptions,
+} from './config/swagger.config.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -16,8 +19,9 @@ async function bootstrap() {
 
   //Setup Swagger
   const swaggerConfig = getSwaggerConfig();
+  const swaggerDocumentOptions = getSwaggerDocumentOptions();
   const documentFactory = () =>
-    SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.createDocument(app, swaggerConfig, swaggerDocumentOptions);
   SwaggerModule.setup('api', app, documentFactory);
 
   const port = configService.getOrThrow<number>('HTTP_PORT');

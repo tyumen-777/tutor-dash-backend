@@ -1,4 +1,5 @@
 import { Body, Controller, Post } from '@nestjs/common';
+import { ApiOperation } from '@nestjs/swagger';
 import { Session, type UserSession } from '@thallesp/nestjs-better-auth';
 
 import { AdminService } from './admin.service.js';
@@ -12,6 +13,11 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Post()
+  @ApiOperation({
+    summary: 'Создание организации с владельцем',
+    description:
+      'Создает новую организацию и первого пользователя-владельца от имени администратора.',
+  })
   createOrganizationOwner(
     @Session() session: UserSession,
     @Body({ schema: createOrganizationOwnerSchema })

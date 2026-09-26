@@ -5,6 +5,7 @@ import {
   type UserSession,
 } from '@thallesp/nestjs-better-auth';
 import type { Response } from 'express';
+import { ApiOperation } from '@nestjs/swagger';
 
 import { AuthApiService } from './auth.service.js';
 import { type LoginDto, loginSchema } from './dto/index.js';
@@ -15,6 +16,11 @@ export class BackendAuthController {
 
   @AllowAnonymous()
   @Post('login')
+  @ApiOperation({
+    summary: 'Вход в систему',
+    description:
+      'Проверяет учетные данные пользователя и устанавливает cookie сессии.',
+  })
   login(
     @Body({ schema: loginSchema }) body: LoginDto,
     @Res({ passthrough: true }) response: Response,
@@ -23,6 +29,11 @@ export class BackendAuthController {
   }
 
   @Get('me')
+  @ApiOperation({
+    summary: 'Получение текущей сессии',
+    description:
+      'Возвращает данные авторизованного пользователя и активной сессии.',
+  })
   me(@Session() session: UserSession) {
     return {
       user: {
