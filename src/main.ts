@@ -15,6 +15,11 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const logger = new Logger(AppModule.name);
 
+  app.enableCors({
+    origin: configService.getOrThrow<string>('FRONTEND_ORIGIN'),
+    credentials: true,
+  });
+
   app.useGlobalPipes(new StandardSchemaValidationPipe());
 
   //Setup Swagger
