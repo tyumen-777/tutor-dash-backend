@@ -16,6 +16,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import { auth } from '../auth/auth.js';
 import type { AcceptInvitationDto } from './dto/accept-invitation.dto.js';
 import type { CreateInvitationDto } from './dto/create-invitation.dto.js';
+import type { InvitationResponseDto } from './dto/invitation-response.dto.js';
 
 type SessionUser = {
   id: string;
@@ -286,13 +287,13 @@ export class OrganizationInvitationsService {
 
   private toInvitationResponse(
     invitation: Awaited<ReturnType<typeof this.findInvitation>>,
-  ) {
+  ): InvitationResponseDto {
     return {
       id: invitation.id,
       email: invitation.email,
       role: invitation.role,
       status: invitation.status,
-      expiresAt: invitation.expiresAt,
+      expiresAt: invitation.expiresAt.toISOString(),
       organization: {
         id: invitation.organization.id,
         name: invitation.organization.name,

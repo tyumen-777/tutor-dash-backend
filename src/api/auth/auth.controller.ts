@@ -1,14 +1,27 @@
-import { Body, Controller, Get, Post, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Res,
+} from '@nestjs/common';
 import {
   AllowAnonymous,
   Session,
   type UserSession,
 } from '@thallesp/nestjs-better-auth';
 import type { Response } from 'express';
-import { ApiOperation } from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation } from '@nestjs/swagger';
 
 import { AuthApiService } from './auth.service.js';
-import { type LoginDto, loginSchema } from './dto/index.js';
+import {
+  type AuthSessionResponseDto,
+  authSessionResponseSchema,
+  type LoginDto,
+  loginSchema,
+} from './dto/index.js';
 
 @Controller('auth')
 export class BackendAuthController {
@@ -16,15 +29,21 @@ export class BackendAuthController {
 
   @AllowAnonymous()
   @Post('login')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Вход в систему',
     description:
       'Проверяет учетные данные пользователя и устанавливает cookie сессии.',
   })
+  @ApiOkResponse({
+    description:
+      'Успешный вход. Cookie сессии установлена в заголовке Set-Cookie.',
+    standardSchema: authSessionResponseSchema,
+  })
   login(
     @Body({ schema: loginSchema }) body: LoginDto,
     @Res({ passthrough: true }) response: Response,
-  ) {
+  ): Promise<AuthSessionResponseDto> {
     return this.authService.login(body, response);
   }
 
@@ -34,7 +53,11 @@ export class BackendAuthController {
     description:
       'Возвращает данные авторизованного пользователя и активной сессии.',
   })
-  me(@Session() session: UserSession) {
+  @ApiOkResponse({
+    description: 'Данные текущего пользователя и активной сессии.',
+    standardSchema: authSessionResponseSchema,
+  })
+  me(@Session() session: UserSession): AuthSessionResponseDto {
     return {
       user: {
         id: session.user.id,

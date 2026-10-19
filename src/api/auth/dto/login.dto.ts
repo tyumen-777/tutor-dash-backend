@@ -2,16 +2,24 @@ import { z } from 'zod';
 
 export const loginSchema = z
   .object({
-    email: z.string().trim().toLowerCase().pipe(
-      z.email().meta({
-        description: 'User email address.',
-        example: 'owner@example.com',
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .pipe(
+        z.email().meta({
+          description: 'User email address.',
+          examples: ['owner@example.com'],
+        }),
+      ),
+    password: z
+      .string()
+      .min(1)
+      .max(128)
+      .meta({
+        description: 'User password.',
+        examples: ['correct-horse-battery-staple'],
       }),
-    ),
-    password: z.string().min(1).max(128).meta({
-      description: 'User password.',
-      example: 'correct-horse-battery-staple',
-    }),
   })
   .strict()
   .meta({
