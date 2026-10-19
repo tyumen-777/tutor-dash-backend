@@ -23,18 +23,20 @@ model user {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  sessions                   session[]
-  accounts                   account[]
-  memberships                member[]
-  sentInvitations            invitation[]
+  sessions        session[]
+  accounts        account[]
+  memberships     member[]
+  sentInvitations invitation[]
+  studentProfiles Student[]
+  createdPayments Payment[]
 }
 
 model session {
-  id                   String        @id
+  id                   String   @id
   expiresAt            DateTime
-  token                String        @unique
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  token                String   @unique
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
   ipAddress            String?
   userAgent            String?
   userId               String
@@ -84,12 +86,25 @@ model organization {
   slug      String   @unique
   logo      String?
   metadata  Json?
+  // IANA timezone школы: в нём задаются шаблоны расписания
+  timezone  String   @default("Europe/Moscow")
+  currency  String   @default("RUB") @db.Char(3)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members        member[]
-  invitations    invitation[]
-  activeSessions session[]    @relation("sessionActiveOrganization")
+  members            member[]
+  invitations        invitation[]
+  activeSessions     session[]             @relation("sessionActiveOrganization")
+  students           Student[]
+  guardians          Guardian[]
+  teachers           Teacher[]
+  subscriptionPlans  SubscriptionPlan[]
+  subscriptions      StudentSubscription[]
+  subscriptionUsages SubscriptionUsage[]
+  payments           Payment[]
+  scheduleRules      ScheduleRule[]
+  lessons            Lesson[]
+  lessonParticipants LessonParticipant[]
 }
 
 model member {
@@ -99,8 +114,9 @@ model member {
   role           String   @default("member")
   createdAt      DateTime @default(now())
 
-  organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user         user         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           user         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teacherProfile Teacher?
 
   @@unique([organizationId, userId])
   @@index([organizationId])
@@ -123,4 +139,343 @@ model invitation {
   @@index([organizationId])
   @@index([email])
   @@index([inviterId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Домен школы. Каждая таблица содержит organizationId (тенант).
+// Деньги — Decimal(12,2), время — timestamptz (UTC), даты — date.
+// Ограничения, которые Prisma не умеет описать (CHECK, EXCLUDE),
+// добавлены вручную в SQL миграции.
+// ─────────────────────────────────────────────────────────────
+
+enum StudentStatus {
+  LEAD
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum GuardianRelation {
+  MOTHER
+  FATHER
+  GUARDIAN
+  OTHER
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXHAUSTED
+  CANCELED
+}
+
+enum SubscriptionUsageType {
+  LESSON // списание за занятие (−1)
+  ADJUSTMENT // ручная корректировка (±N)
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  OTHER
+}
+
+enum PaymentStatus {
+  COMPLETED
+  CANCELED
+  REFUNDED
+}
+
+enum LessonStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELED // отменено без переноса, не списывается
+  RESCHEDULED // перенесено (заранее предупредили), не списывается
+}
+
+enum AttendanceStatus {
+  PLANNED
+  ATTENDED
+  MISSED
+}
+
+model Student {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  organizationId String
+  // Аккаунт для будущего личного кабинета ученика
+  userId         String?
+  firstName      String
+  lastName       String?
+  phone          String?
+  email          String?
+  birthDate      DateTime?     @db.Date
+  // IANA timezone ученика (онлайн-занятия, уведомления); null = timezone школы
+  timezone       String?
+  status         StudentStatus @default(ACTIVE)
+  note           String?
+  createdAt      DateTime      @default(now()) @db.Timestamptz
+  updatedAt      DateTime      @updatedAt @db.Timestamptz
+
+  organization  organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user          user?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  guardians     StudentGuardian[]
+  subscriptions StudentSubscription[]
+  usages        SubscriptionUsage[]
+  payments      Payment[]
+  scheduleRules ScheduleRule[]
+  lessons       LessonParticipant[]
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, status])
+  @@index([organizationId, lastName, firstName])
+  @@map("students")
+}
+
+// Родитель / законный представитель. Один родитель может быть у нескольких детей.
+model Guardian {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String
+  fullName       String
+  phone          String?
+  email          String?
+  note           String?
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @updatedAt @db.Timestamptz
+
+  organization organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  students     StudentGuardian[]
+  payments     Payment[]
+
+  @@index([organizationId])
+  @@index([organizationId, phone])
+  @@map("guardians")
+}
+
+model StudentGuardian {
+  studentId  String           @db.Uuid
+  guardianId String           @db.Uuid
+  relation   GuardianRelation @default(OTHER)
+  isPayer    Boolean          @default(false)
+  isPrimary  Boolean          @default(false)
+
+  student  Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  guardian Guardian @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+
+  @@id([studentId, guardianId])
+  @@index([guardianId])
+  @@map("student_guardians")
+}
+
+model Teacher {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String
+  // Аккаунт преподавателя (member с ролью teacher), появится позже
+  memberId       String?  @unique
+  firstName      String
+  lastName       String?
+  phone          String?
+  email          String?
+  // Ставка за урок по умолчанию; фактическая фиксируется в Lesson.teacherRate
+  lessonRate     Decimal  @default(0) @db.Decimal(12, 2)
+  // Постоянная ссылка на онлайн-комнату преподавателя
+  meetingUrl     String?
+  isActive       Boolean  @default(true)
+  note           String?
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @updatedAt @db.Timestamptz
+
+  organization  organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  member        member?        @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  scheduleRules ScheduleRule[]
+  lessons       Lesson[]
+
+  @@index([organizationId, isActive])
+  @@map("teachers")
+}
+
+// Тариф: «8 занятий по 60 минут за 12 000 ₽». Срока действия нет.
+model SubscriptionPlan {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String
+  name           String
+  lessonsCount   Int
+  lessonDuration Int? // минуты, справочно
+  price          Decimal  @db.Decimal(12, 2)
+  isArchived     Boolean  @default(false)
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @updatedAt @db.Timestamptz
+
+  organization  organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscriptions StudentSubscription[]
+
+  @@index([organizationId, isArchived])
+  @@map("subscription_plans")
+}
+
+// Купленный учеником абонемент. Условия копируются из тарифа,
+// чтобы изменение тарифа не меняло уже проданные абонементы.
+// Срока действия нет. Списание идёт с самого раннего ACTIVE
+// абонемента (FIFO по purchasedOn, createdAt).
+model StudentSubscription {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  organizationId String
+  studentId      String             @db.Uuid
+  planId         String?            @db.Uuid
+  name           String
+  lessonsTotal   Int
+  // Кеш остатка; источник истины — сумма SubscriptionUsage.lessonsDelta
+  lessonsLeft    Int
+  lessonDuration Int?
+  price          Decimal            @db.Decimal(12, 2)
+  purchasedOn    DateTime           @db.Date
+  status         SubscriptionStatus @default(ACTIVE)
+  createdAt      DateTime           @default(now()) @db.Timestamptz
+  updatedAt      DateTime           @updatedAt @db.Timestamptz
+
+  organization organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student      Student             @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  plan         SubscriptionPlan?   @relation(fields: [planId], references: [id], onDelete: SetNull)
+  usages       SubscriptionUsage[]
+  payments     Payment[]
+
+  @@index([organizationId, status])
+  @@index([studentId, status, purchasedOn, createdAt])
+  @@map("student_subscriptions")
+}
+
+// Журнал движений по абонементу (только добавление записей).
+model SubscriptionUsage {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  organizationId  String
+  subscriptionId  String                @db.Uuid
+  studentId       String                @db.Uuid
+  lessonId        String?               @db.Uuid
+  type            SubscriptionUsageType
+  lessonsDelta    Int
+  comment         String?
+  createdByUserId String?
+  createdAt       DateTime              @default(now()) @db.Timestamptz
+
+  organization organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription StudentSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  student      Student             @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  lesson       Lesson?             @relation(fields: [lessonId], references: [id], onDelete: Restrict)
+
+  // Одно занятие нельзя списать с ученика дважды (NULL-ы для ADJUSTMENT различимы)
+  @@unique([lessonId, studentId])
+  @@index([subscriptionId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("subscription_usages")
+}
+
+model Payment {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  organizationId  String
+  studentId       String        @db.Uuid
+  // Абонемент может оплачиваться частями — несколько платежей
+  subscriptionId  String?       @db.Uuid
+  // Кто фактически платил (родитель); null = сам ученик
+  payerGuardianId String?       @db.Uuid
+  amount          Decimal       @db.Decimal(12, 2)
+  currency        String        @db.Char(3)
+  method          PaymentMethod
+  status          PaymentStatus @default(COMPLETED)
+  paidAt          DateTime      @db.Timestamptz
+  comment         String?
+  createdByUserId String
+  createdAt       DateTime      @default(now()) @db.Timestamptz
+  updatedAt       DateTime      @updatedAt @db.Timestamptz
+
+  organization organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student      Student              @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  subscription StudentSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  payer        Guardian?            @relation(fields: [payerGuardianId], references: [id], onDelete: SetNull)
+  createdBy    user                 @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, paidAt])
+  @@index([studentId, paidAt])
+  @@index([subscriptionId])
+  @@map("payments")
+}
+
+// Шаблон повторяющегося занятия: «каждый вторник в 18:00, 60 минут».
+// По нему генерируются конкретные Lesson на несколько недель вперёд.
+model ScheduleRule {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  organizationId String
+  teacherId      String    @db.Uuid
+  // Индивидуальное занятие; для групп в будущем появится groupId
+  studentId      String    @db.Uuid
+  weekday        Int // 1 = понедельник … 7 = воскресенье (ISO)
+  startTime      DateTime  @db.Time(0) // локальное время в timezone
+  durationMin    Int
+  timezone       String
+  validFrom      DateTime  @db.Date
+  validTo        DateTime? @db.Date
+  createdAt      DateTime  @default(now()) @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @db.Timestamptz
+
+  organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teacher      Teacher      @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  lessons      Lesson[]
+
+  @@index([organizationId])
+  @@index([teacherId])
+  @@index([studentId])
+  @@map("schedule_rules")
+}
+
+model Lesson {
+  id                String       @id @default(uuid(7)) @db.Uuid
+  organizationId    String
+  teacherId         String       @db.Uuid
+  scheduleRuleId    String?      @db.Uuid // null = разовое занятие
+  startsAt          DateTime     @db.Timestamptz
+  endsAt            DateTime     @db.Timestamptz
+  status            LessonStatus @default(SCHEDULED)
+  cancelReason      String?
+  // Занятие, с которого перенесено это (у исходного статус RESCHEDULED)
+  rescheduledFromId String?      @unique @db.Uuid
+  // Ссылка на конкретное занятие; null = Teacher.meetingUrl
+  meetingUrl        String?
+  topic             String?
+  homework          String?
+  // Ставка преподавателя, зафиксированная при проведении занятия
+  teacherRate       Decimal?     @db.Decimal(12, 2)
+  completedAt       DateTime?    @db.Timestamptz
+  createdAt         DateTime     @default(now()) @db.Timestamptz
+  updatedAt         DateTime     @updatedAt @db.Timestamptz
+
+  organization    organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teacher         Teacher             @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  scheduleRule    ScheduleRule?       @relation(fields: [scheduleRuleId], references: [id], onDelete: SetNull)
+  rescheduledFrom Lesson?             @relation("LessonReschedule", fields: [rescheduledFromId], references: [id], onDelete: SetNull)
+  rescheduledTo   Lesson?             @relation("LessonReschedule")
+  participants    LessonParticipant[]
+  usages          SubscriptionUsage[]
+
+  @@index([organizationId, startsAt])
+  @@index([teacherId, startsAt])
+  @@index([scheduleRuleId, startsAt])
+  @@map("lessons")
+}
+
+// Участники занятия и посещаемость. Сейчас у индивидуального занятия
+// одна запись; групповые занятия лягут в эту же таблицу.
+model LessonParticipant {
+  lessonId       String           @db.Uuid
+  studentId      String           @db.Uuid
+  organizationId String
+  attendance     AttendanceStatus @default(PLANNED)
+  createdAt      DateTime         @default(now()) @db.Timestamptz
+  updatedAt      DateTime         @updatedAt @db.Timestamptz
+
+  organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lesson       Lesson       @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+
+  @@id([lessonId, studentId])
+  @@index([studentId])
+  @@map("lesson_participants")
 }

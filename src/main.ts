@@ -27,7 +27,9 @@ async function bootstrap() {
   const swaggerDocumentOptions = getSwaggerDocumentOptions();
   const documentFactory = () =>
     SwaggerModule.createDocument(app, swaggerConfig, swaggerDocumentOptions);
-  SwaggerModule.setup('api', app, documentFactory);
+  SwaggerModule.setup('api', app, documentFactory, {
+    jsonDocumentUrl: 'openapi.json',
+  });
 
   const port = configService.getOrThrow<number>('HTTP_PORT');
   const host = configService.getOrThrow<string>('HTTP_HOST');
