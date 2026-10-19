@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Req,
   Res,
 } from '@nestjs/common';
 import {
@@ -12,8 +13,12 @@ import {
   Session,
   type UserSession,
 } from '@thallesp/nestjs-better-auth';
-import type { Response } from 'express';
-import { ApiOkResponse, ApiOperation } from '@nestjs/swagger';
+import type { Request, Response } from 'express';
+import {
+  ApiNoContentResponse,
+  ApiOkResponse,
+  ApiOperation,
+} from '@nestjs/swagger';
 
 import { AuthApiService } from './auth.service.js';
 import {
@@ -69,5 +74,23 @@ export class BackendAuthController {
         activeOrganizationId: session.session.activeOrganizationId ?? null,
       },
     };
+  }
+
+  @AllowAnonymous()
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Выход из системы',
+    description:
+      'Завершает текущую сессию и удаляет cookie сессии. Без активной сессии просто очищает cookie.',
+  })
+  @ApiNoContentResponse({
+    description: 'Сессия завершена, cookie сессии удалена.',
+  })
+  logout(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<void> {
+    return this.authService.logout(request, response);
   }
 }

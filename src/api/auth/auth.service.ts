@@ -4,7 +4,8 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import { fromNodeHeaders } from 'better-auth/node';
+import type { Request, Response } from 'express';
 
 import { auth } from './auth.js';
 import type { LoginDto } from './dto/login.dto.js';
@@ -48,6 +49,18 @@ export class AuthApiService {
     } catch (error) {
       throw this.toHttpException(error);
     }
+  }
+
+  async logout(request: Request, response: Response): Promise<void> {
+    const signOutResponse = await auth.api.signOut({
+      headers: fromNodeHeaders(request.headers),
+      asResponse: true,
+    });
+
+    this.setCookieHeaders(
+      response,
+      this.getSetCookieHeaders(signOutResponse.headers),
+    );
   }
 
   private getSetCookieHeaders(headers: Headers): string[] {
