@@ -26,6 +26,8 @@ import {
   authSessionResponseSchema,
   type LoginDto,
   loginSchema,
+  type SetActiveOrganizationDto,
+  setActiveOrganizationSchema,
 } from './dto/index.js';
 
 @Controller('auth')
@@ -56,24 +58,40 @@ export class BackendAuthController {
   @ApiOperation({
     summary: 'Получение текущей сессии',
     description:
-      'Возвращает данные авторизованного пользователя и активной сессии.',
+      'Возвращает данные авторизованного пользователя, активной сессии и список его организаций.',
   })
   @ApiOkResponse({
     description: 'Данные текущего пользователя и активной сессии.',
     standardSchema: authSessionResponseSchema,
   })
-  me(@Session() session: UserSession): AuthSessionResponseDto {
-    return {
-      user: {
-        id: session.user.id,
-        email: session.user.email,
-        name: session.user.name,
-      },
-      session: {
-        id: session.session.id,
-        activeOrganizationId: session.session.activeOrganizationId ?? null,
-      },
-    };
+  me(@Session() session: UserSession): Promise<AuthSessionResponseDto> {
+    return this.authService.getSessionResponse(session);
+  }
+
+  @Post('active-organization')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Выбор активной организации',
+    description:
+      'Делает указанную организацию активной для текущей сессии. Пользователь должен состоять в этой организации.',
+  })
+  @ApiOkResponse({
+    description: 'Активная организация выбрана.',
+    standardSchema: authSessionResponseSchema,
+  })
+  setActiveOrganization(
+    @Session() session: UserSession,
+    @Body({ schema: setActiveOrganizationSchema })
+    body: SetActiveOrganizationDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<AuthSessionResponseDto> {
+    return this.authService.setActiveOrganization(
+      session,
+      body,
+      request,
+      response,
+    );
   }
 
   @AllowAnonymous()

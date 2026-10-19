@@ -36,6 +36,36 @@ export const auth = betterAuth({
     disableSignUp: true,
     requireEmailVerification: false,
   },
+  databaseHooks: {
+    session: {
+      create: {
+        // Единственную организацию выбираем сразу; при нескольких
+        // фронт показывает выбор и вызывает POST /auth/active-organization.
+        before: async (session) => {
+          if (session.activeOrganizationId) {
+            return;
+          }
+
+          const memberships = await authPrisma.member.findMany({
+            where: { userId: session.userId },
+            select: { organizationId: true },
+            take: 2,
+          });
+
+          if (memberships.length !== 1) {
+            return;
+          }
+
+          return {
+            data: {
+              ...session,
+              activeOrganizationId: memberships[0].organizationId,
+            },
+          };
+        },
+      },
+    },
+  },
   plugins: [
     organization({
       ac: organizationAccessControl,

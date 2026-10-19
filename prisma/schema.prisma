@@ -271,12 +271,14 @@ model Teacher {
   organizationId String
   // Аккаунт преподавателя (member с ролью teacher), появится позже
   memberId       String?  @unique
-  firstName      String
-  lastName       String?
+  fullName       String
   phone          String?
   email          String?
-  // Ставка за урок по умолчанию; фактическая фиксируется в Lesson.teacherRate
-  lessonRate     Decimal  @default(0) @db.Decimal(12, 2)
+  // Username в Telegram без «@»
+  telegram       String?
+  // Ставка за час; фактическая ставка за занятие фиксируется в Lesson.teacherRate
+  hourlyRate     Decimal  @default(0) @db.Decimal(12, 2)
+  startedOn      DateTime @db.Date
   // Постоянная ссылка на онлайн-комнату преподавателя
   meetingUrl     String?
   isActive       Boolean  @default(true)
@@ -290,6 +292,7 @@ model Teacher {
   lessons       Lesson[]
 
   @@index([organizationId, isActive])
+  @@index([organizationId, fullName])
   @@map("teachers")
 }
 

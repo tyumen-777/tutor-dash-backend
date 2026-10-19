@@ -1,18 +1,35 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { fromNodeHeaders } from 'better-auth/node';
 import type { Request, Response } from 'express';
 
+import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import { auth } from './auth.js';
+import type {
+  AuthSessionResponseDto,
+  UserOrganizationDto,
+} from './dto/auth-session-response.dto.js';
 import type { LoginDto } from './dto/login.dto.js';
+import type { SetActiveOrganizationDto } from './dto/set-active-organization.dto.js';
+
+type SessionState = {
+  user: { id: string; email: string; name: string };
+  session: { id: string; activeOrganizationId?: string | null };
+};
 
 @Injectable()
 export class AuthApiService {
-  async login(dto: LoginDto, response: Response) {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async login(
+    dto: LoginDto,
+    response: Response,
+  ): Promise<AuthSessionResponseDto> {
     try {
       const signInResponse = await auth.api.signInEmail({
         body: {
@@ -35,20 +52,71 @@ export class AuthApiService {
         throw new UnauthorizedException('Invalid email or password');
       }
 
-      return {
-        user: {
-          id: session.user.id,
-          email: session.user.email,
-          name: session.user.name,
-        },
-        session: {
-          id: session.session.id,
-          activeOrganizationId: session.session.activeOrganizationId ?? null,
-        },
-      };
+      return await this.getSessionResponse(session);
     } catch (error) {
       throw this.toHttpException(error);
     }
+  }
+
+  async getSessionResponse(
+    session: SessionState,
+  ): Promise<AuthSessionResponseDto> {
+    return {
+      user: {
+        id: session.user.id,
+        email: session.user.email,
+        name: session.user.name,
+      },
+      session: {
+        id: session.session.id,
+        activeOrganizationId: session.session.activeOrganizationId ?? null,
+      },
+      organizations: await this.getUserOrganizations(session.user.id),
+    };
+  }
+
+  async setActiveOrganization(
+    session: SessionState,
+    dto: SetActiveOrganizationDto,
+    request: Request,
+    response: Response,
+  ): Promise<AuthSessionResponseDto> {
+    const membership = await this.prisma.member.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId: dto.organizationId,
+          userId: session.user.id,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!membership) {
+      throw new ForbiddenException('User is not a member of this organization');
+    }
+
+    try {
+      const setActiveResponse = await auth.api.setActiveOrganization({
+        body: { organizationId: dto.organizationId },
+        headers: fromNodeHeaders(request.headers),
+        asResponse: true,
+      });
+
+      this.setCookieHeaders(
+        response,
+        this.getSetCookieHeaders(setActiveResponse.headers),
+      );
+    } catch (error) {
+      throw this.toHttpException(error);
+    }
+
+    return this.getSessionResponse({
+      ...session,
+      session: {
+        ...session.session,
+        activeOrganizationId: dto.organizationId,
+      },
+    });
   }
 
   async logout(request: Request, response: Response): Promise<void> {
@@ -61,6 +129,24 @@ export class AuthApiService {
       response,
       this.getSetCookieHeaders(signOutResponse.headers),
     );
+  }
+
+  private async getUserOrganizations(
+    userId: string,
+  ): Promise<UserOrganizationDto[]> {
+    const memberships = await this.prisma.member.findMany({
+      where: { userId },
+      orderBy: { organization: { name: 'asc' } },
+      select: {
+        role: true,
+        organization: { select: { id: true, name: true, slug: true } },
+      },
+    });
+
+    return memberships.map(({ role, organization }) => ({
+      ...organization,
+      role,
+    }));
   }
 
   private getSetCookieHeaders(headers: Headers): string[] {
