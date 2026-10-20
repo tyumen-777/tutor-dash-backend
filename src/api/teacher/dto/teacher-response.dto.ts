@@ -39,8 +39,16 @@ export const teacherResponseSchema = z
       description: 'Employment start date (YYYY-MM-DD).',
       examples: ['2026-10-01'],
     }),
+    endedOn: z.iso
+      .date()
+      .nullable()
+      .meta({
+        description:
+          'Employment end date (YYYY-MM-DD); set for archived teachers.',
+        examples: [null],
+      }),
     isActive: z.boolean().meta({
-      description: 'Whether the teacher is active.',
+      description: 'Whether the teacher is active (false = archived).',
       examples: [true],
     }),
     createdAt: z.iso.datetime().meta({

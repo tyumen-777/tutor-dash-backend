@@ -7,8 +7,8 @@ export const listTeachersQuerySchema = z
         'Case-insensitive search by full name, email, phone or Telegram.',
       example: 'иванова',
     }),
-    status: z.enum(['active', 'inactive', 'all']).default('active').meta({
-      description: 'Filter by teacher status.',
+    status: z.enum(['active', 'archived', 'all']).default('active').meta({
+      description: 'Filter by teacher status: active, archived or all.',
       example: 'active',
     }),
     limit: z.coerce.number().int().min(1).max(100).default(20).meta({

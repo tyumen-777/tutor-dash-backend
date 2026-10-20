@@ -14,14 +14,14 @@ describe('listTeachersQuerySchema', () => {
   it('coerces query string values', () => {
     const result = listTeachersQuerySchema.parse({
       search: ' Иванова ',
-      status: 'all',
+      status: 'archived',
       limit: '50',
       offset: '100',
     });
 
     expect(result).toEqual({
       search: 'Иванова',
-      status: 'all',
+      status: 'archived',
       limit: 50,
       offset: 100,
     });
@@ -31,7 +31,7 @@ describe('listTeachersQuerySchema', () => {
     ['limit above 100', { limit: '101' }],
     ['zero limit', { limit: '0' }],
     ['negative offset', { offset: '-1' }],
-    ['unknown status', { status: 'fired' }],
+    ['unknown status', { status: 'inactive' }],
     ['unknown field', { sort: 'name' }],
   ])('rejects %s', (_, query) => {
     expect(listTeachersQuerySchema.safeParse(query).success).toBe(false);

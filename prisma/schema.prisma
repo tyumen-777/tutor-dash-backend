@@ -267,24 +267,26 @@ model StudentGuardian {
 }
 
 model Teacher {
-  id             String   @id @default(uuid(7)) @db.Uuid
+  id             String    @id @default(uuid(7)) @db.Uuid
   organizationId String
   // Аккаунт преподавателя (member с ролью teacher), появится позже
-  memberId       String?  @unique
+  memberId       String?   @unique
   fullName       String
   phone          String?
   email          String?
   // Username в Telegram без «@»
   telegram       String?
   // Ставка за час; фактическая ставка за занятие фиксируется в Lesson.teacherRate
-  hourlyRate     Decimal  @default(0) @db.Decimal(12, 2)
-  startedOn      DateTime @db.Date
+  hourlyRate     Decimal   @default(0) @db.Decimal(12, 2)
+  startedOn      DateTime  @db.Date
+  // Дата увольнения; заполнена у преподавателей в архиве
+  endedOn        DateTime? @db.Date
   // Постоянная ссылка на онлайн-комнату преподавателя
   meetingUrl     String?
-  isActive       Boolean  @default(true)
+  isActive       Boolean   @default(true)
   note           String?
-  createdAt      DateTime @default(now()) @db.Timestamptz
-  updatedAt      DateTime @updatedAt @db.Timestamptz
+  createdAt      DateTime  @default(now()) @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @db.Timestamptz
 
   organization  organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   member        member?        @relation(fields: [memberId], references: [id], onDelete: SetNull)
