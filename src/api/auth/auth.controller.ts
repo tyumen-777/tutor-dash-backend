@@ -13,6 +13,7 @@ import {
   Session,
   type UserSession,
 } from '@thallesp/nestjs-better-auth';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import {
   ApiNoContentResponse,
@@ -20,6 +21,7 @@ import {
   ApiOperation,
 } from '@nestjs/swagger';
 
+import { CREDENTIALS_THROTTLE } from '../../config/index.js';
 import { AuthApiService } from './auth.service.js';
 import {
   type AuthSessionResponseDto,
@@ -35,6 +37,7 @@ export class BackendAuthController {
   constructor(private readonly authService: AuthApiService) {}
 
   @AllowAnonymous()
+  @Throttle(CREDENTIALS_THROTTLE)
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -49,9 +52,10 @@ export class BackendAuthController {
   })
   login(
     @Body({ schema: loginSchema }) body: LoginDto,
+    @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<AuthSessionResponseDto> {
-    return this.authService.login(body, response);
+    return this.authService.login(body, request, response);
   }
 
   @Get('me')

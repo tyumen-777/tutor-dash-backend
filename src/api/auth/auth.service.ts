@@ -10,6 +10,7 @@ import type { Request, Response } from 'express';
 
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import { auth } from './auth.js';
+import { toAuthHeaders } from './auth-headers.js';
 import type {
   AuthSessionResponseDto,
   UserOrganizationDto,
@@ -28,6 +29,7 @@ export class AuthApiService {
 
   async login(
     dto: LoginDto,
+    request: Request,
     response: Response,
   ): Promise<AuthSessionResponseDto> {
     try {
@@ -36,6 +38,8 @@ export class AuthApiService {
           email: dto.email,
           password: dto.password,
         },
+        // IP и User-Agent попадают в сессию
+        headers: toAuthHeaders(request),
         asResponse: true,
       });
 

@@ -21,8 +21,10 @@ import {
   Session,
   type UserSession,
 } from '@thallesp/nestjs-better-auth';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 
+import { CREDENTIALS_THROTTLE } from '../../config/index.js';
 import {
   acceptInvitationSchema,
   type AcceptInvitationDto,
@@ -82,6 +84,7 @@ export class OrganizationInvitationsController {
   }
 
   @AllowAnonymous()
+  @Throttle(CREDENTIALS_THROTTLE)
   @Post(':id/accept')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

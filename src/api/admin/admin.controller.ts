@@ -1,8 +1,8 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOperation } from '@nestjs/swagger';
-import { Session, type UserSession } from '@thallesp/nestjs-better-auth';
 
 import { AdminService } from './admin.service.js';
+import { SaasAdminGuard } from './saas-admin.guard.js';
 import {
   createOrganizationOwnerSchema,
   type CreateOrganizationOwnerDto,
@@ -12,6 +12,8 @@ import {
   type OrganizationMemberResponseDto,
 } from '../organization/dto/organization-member-response.dto.js';
 
+// Все эндпоинты /admin/* доступны только SaaS-админу
+@UseGuards(SaasAdminGuard)
 @Controller('admin/organizations')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
@@ -27,10 +29,9 @@ export class AdminController {
     standardSchema: organizationMemberResponseSchema,
   })
   createOrganizationOwner(
-    @Session() session: UserSession,
     @Body({ schema: createOrganizationOwnerSchema })
     body: CreateOrganizationOwnerDto,
   ): Promise<OrganizationMemberResponseDto> {
-    return this.adminService.createOrganizationOwner(session.user, body);
+    return this.adminService.createOrganizationOwner(body);
   }
 }

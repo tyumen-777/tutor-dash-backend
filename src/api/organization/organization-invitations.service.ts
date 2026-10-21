@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import { auth } from '../auth/auth.js';
+import { toAuthHeaders } from '../auth/auth-headers.js';
 import type { AcceptInvitationDto } from './dto/accept-invitation.dto.js';
 import type { CreateInvitationDto } from './dto/create-invitation.dto.js';
 import type { InvitationResponseDto } from './dto/invitation-response.dto.js';
@@ -196,6 +197,7 @@ export class OrganizationInvitationsService {
         email: invitation.email,
         password: dto.password,
       },
+      headers: toAuthHeaders(request),
       asResponse: true,
     });
     const setCookieHeaders = this.getSetCookieHeaders(signInResponse.headers);

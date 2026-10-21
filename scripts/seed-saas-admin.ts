@@ -9,16 +9,6 @@ import { PrismaClient } from '../src/generated/prisma/client.js';
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
-  SAAS_ADMIN_EMAILS: z
-    .string()
-    .min(1)
-    .transform((value) =>
-      value
-        .split(',')
-        .map((email) => email.trim().toLowerCase())
-        .filter(Boolean),
-    )
-    .pipe(z.array(z.email()).min(1)),
   SAAS_ADMIN_BOOTSTRAP_EMAIL: z.string().trim().toLowerCase().pipe(z.email()),
   SAAS_ADMIN_BOOTSTRAP_NAME: z.string().trim().min(1),
   SAAS_ADMIN_BOOTSTRAP_PASSWORD: z.string().min(8).max(128),
@@ -35,12 +25,6 @@ async function main() {
   const email = env.SAAS_ADMIN_BOOTSTRAP_EMAIL;
   const passwordHash = await hashPassword(env.SAAS_ADMIN_BOOTSTRAP_PASSWORD);
 
-  if (!env.SAAS_ADMIN_EMAILS.includes(email)) {
-    console.warn(
-      `Warning: ${email} is not listed in SAAS_ADMIN_EMAILS. The user will be created, but admin endpoints will reject this account until you add it there.`,
-    );
-  }
-
   const existingUser = await prisma.user.findUnique({
     where: { email },
   });
@@ -53,6 +37,7 @@ async function main() {
         email,
         name: env.SAAS_ADMIN_BOOTSTRAP_NAME,
         emailVerified: true,
+        isSaasAdmin: true,
         createdAt: now,
         updatedAt: now,
       },
@@ -64,6 +49,7 @@ async function main() {
       data: {
         name: env.SAAS_ADMIN_BOOTSTRAP_NAME,
         emailVerified: true,
+        isSaasAdmin: true,
         updatedAt: now,
       },
     });
@@ -109,7 +95,6 @@ try {
     console.error(
       'Could not connect to the database. Start Postgres and apply migrations before running this seed.',
     );
-    console.error(`DATABASE_URL=${env.DATABASE_URL}`);
     process.exitCode = 1;
   } else {
     throw error;

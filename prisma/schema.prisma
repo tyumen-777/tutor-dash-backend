@@ -20,6 +20,10 @@ model user {
   email         String   @unique
   emailVerified Boolean  @default(false)
   image         String?
+  // Администратор SaaS (создаёт школы). Не объявлен в better-auth,
+  // поэтому не попадает в сессию и не меняется через /api/auth/update-user.
+  // Выдаётся только сид-скриптом или вручную в БД.
+  isSaasAdmin   Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

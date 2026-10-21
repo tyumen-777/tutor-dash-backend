@@ -17,16 +17,23 @@ const envSchema = z.object({
 
   FRONTEND_ORIGIN: z.string().url(),
 
-  SAAS_ADMIN_EMAILS: z
+  // IP или CIDR reverse proxy через запятую. Пусто — заголовкам
+  // X-Forwarded-* не доверяем, IP клиента берётся из сокета.
+  TRUSTED_PROXIES: z
     .string()
-    .min(1)
+    .default('')
     .transform((value) =>
       value
         .split(',')
-        .map((email) => email.trim().toLowerCase())
+        .map((proxy) => proxy.trim())
         .filter(Boolean),
-    )
-    .pipe(z.array(z.email()).min(1)),
+    ),
+
+  // По умолчанию Swagger выключен в production
+  SWAGGER_ENABLED: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value === 'true')),
 });
 
 export type Env = z.infer<typeof envSchema>;

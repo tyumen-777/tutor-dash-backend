@@ -21,6 +21,54 @@ const adapter = new PrismaPg({
 
 export const authPrisma = new PrismaClient({ adapter });
 
+// Организациями и приглашениями управляет наш API (/organization/*,
+// /admin/*), а нативные HTTP-эндпоинты плагина обходят его правила:
+// создание школ, роли при приглашении, приём приглашения без проверок.
+// Серверные вызовы auth.api.* disabledPaths не затрагивает.
+const disabledOrganizationPaths = [
+  'accept-invitation',
+  'add-team-member',
+  'cancel-invitation',
+  'check-slug',
+  'create',
+  'create-role',
+  'create-team',
+  'delete',
+  'delete-role',
+  'get-active-member',
+  'get-active-member-role',
+  'get-full-organization',
+  'get-invitation',
+  'get-organization',
+  'get-role',
+  'has-permission',
+  'invite-member',
+  'leave',
+  'list',
+  'list-invitations',
+  'list-members',
+  'list-roles',
+  'list-team-members',
+  'list-teams',
+  'list-user-invitations',
+  'list-user-teams',
+  'reject-invitation',
+  'remove-member',
+  'remove-team',
+  'remove-team-member',
+  'set-active',
+  'set-active-team',
+  'update',
+  'update-member-role',
+  'update-role',
+  'update-team',
+].map((path) => `/organization/${path}`);
+
+const trustedProxies = (process.env.TRUSTED_PROXIES ?? '')
+  .split(',')
+  .map((proxy) => proxy.trim())
+  .filter(Boolean);
+
 export const auth = betterAuth({
   basePath: '/api/auth',
   baseURL: process.env.BETTER_AUTH_URL,
@@ -28,6 +76,10 @@ export const auth = betterAuth({
   trustedOrigins: [process.env.FRONTEND_ORIGIN].filter(
     (origin): origin is string => Boolean(origin),
   ),
+  disabledPaths: disabledOrganizationPaths,
+  advanced: {
+    ipAddress: trustedProxies.length > 0 ? { trustedProxies } : undefined,
+  },
   database: prismaAdapter(authPrisma, {
     provider: 'postgresql',
   }),
@@ -77,6 +129,8 @@ export const auth = betterAuth({
         accountant,
       },
       creatorRole: 'owner',
+      // Школы создаёт только SaaS-админ через POST /admin/organizations
+      allowUserToCreateOrganization: false,
       teams: {
         enabled: false,
       },
