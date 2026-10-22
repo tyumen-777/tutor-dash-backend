@@ -1,0 +1,135 @@
+import { z } from 'zod';
+
+export const studentResponseSchema = z
+  .object({
+    id: z.uuid().meta({
+      description: 'Student ID.',
+      examples: ['01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b'],
+    }),
+    firstName: z.string().meta({
+      description: 'First name of the student.',
+      examples: ['Анна'],
+    }),
+    lastName: z
+      .string()
+      .nullable()
+      .meta({
+        description: 'Last name of the student.',
+        examples: ['Смирнова'],
+      }),
+    email: z
+      .email()
+      .nullable()
+      .meta({
+        description: 'Student email address.',
+        examples: ['student@example.com'],
+      }),
+    phone: z
+      .string()
+      .nullable()
+      .meta({
+        description: 'Student phone number.',
+        examples: ['+7 912 345-67-89'],
+      }),
+    telegram: z
+      .string()
+      .nullable()
+      .meta({
+        description: 'Telegram username without "@".',
+        examples: ['anna_smirnova'],
+      }),
+    teacher: z
+      .object({
+        id: z.uuid().meta({
+          description: 'Teacher ID.',
+          examples: ['01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b'],
+        }),
+        fullName: z.string().meta({
+          description: 'Full name of the teacher.',
+          examples: ['Иванова Мария Петровна'],
+        }),
+        isActive: z.boolean().meta({
+          description: 'Whether the teacher is active (false = archived).',
+          examples: [true],
+        }),
+      })
+      .nullable()
+      .meta({
+        description: 'Main teacher of the student.',
+      }),
+    level: z
+      .string()
+      .nullable()
+      .meta({
+        description: 'Student level in free form.',
+        examples: ['B1'],
+      }),
+    birthDate: z.iso
+      .date()
+      .nullable()
+      .meta({
+        description: 'Birth date (YYYY-MM-DD).',
+        examples: ['2012-05-14'],
+      }),
+    timezone: z
+      .string()
+      .nullable()
+      .meta({
+        description:
+          'IANA timezone of the student; null means the organization timezone.',
+        examples: ['Asia/Yekaterinburg'],
+      }),
+    status: z.enum(['LEAD', 'ACTIVE', 'PAUSED', 'ARCHIVED']).meta({
+      description: 'Student status.',
+      examples: ['ACTIVE'],
+    }),
+    note: z
+      .string()
+      .nullable()
+      .meta({
+        description: 'Free-form note.',
+        examples: ['Готовится к ОГЭ по математике'],
+      }),
+    createdAt: z.iso.datetime().meta({
+      description: 'Creation date in ISO 8601 format.',
+      examples: ['2026-10-22T12:00:00.000Z'],
+    }),
+  })
+  .meta({
+    id: 'StudentResponse',
+    description: 'Organization student.',
+  });
+
+export type StudentResponseDto = z.infer<typeof studentResponseSchema>;
+
+export const studentListResponseSchema = z
+  .object({
+    items: z.array(studentResponseSchema),
+    total: z
+      .number()
+      .int()
+      .meta({
+        description: 'Total number of students matching the filters.',
+        examples: [42],
+      }),
+    limit: z
+      .number()
+      .int()
+      .meta({
+        description: 'Page size.',
+        examples: [20],
+      }),
+    offset: z
+      .number()
+      .int()
+      .meta({
+        description: 'Number of skipped students.',
+        examples: [0],
+      }),
+  })
+  .meta({
+    id: 'StudentListResponse',
+    description: 'Page of organization students.',
+  });
+
+export type StudentListResponseDto = z.infer<typeof studentListResponseSchema>;

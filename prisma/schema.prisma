@@ -208,10 +208,16 @@ model Student {
   organizationId String
   // Аккаунт для будущего личного кабинета ученика
   userId         String?
+  // Основной преподаватель ученика
+  teacherId      String?       @db.Uuid
   firstName      String
   lastName       String?
   phone          String?
   email          String?
+  // Username в Telegram без «@»
+  telegram       String?
+  // Уровень подготовки в свободной форме: «A2», «7 класс», «ОГЭ»
+  level          String?
   birthDate      DateTime?     @db.Date
   // IANA timezone ученика (онлайн-занятия, уведомления); null = timezone школы
   timezone       String?
@@ -222,6 +228,7 @@ model Student {
 
   organization  organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user          user?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  teacher       Teacher?              @relation(fields: [teacherId], references: [id], onDelete: SetNull)
   guardians     StudentGuardian[]
   subscriptions StudentSubscription[]
   usages        SubscriptionUsage[]
@@ -232,6 +239,7 @@ model Student {
   @@unique([organizationId, userId])
   @@index([organizationId, status])
   @@index([organizationId, lastName, firstName])
+  @@index([teacherId])
   @@map("students")
 }
 
@@ -294,6 +302,7 @@ model Teacher {
 
   organization  organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   member        member?        @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  students      Student[]
   scheduleRules ScheduleRule[]
   lessons       Lesson[]
 
