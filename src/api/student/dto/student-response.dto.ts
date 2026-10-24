@@ -90,6 +90,14 @@ export const studentResponseSchema = z
         description: 'Free-form note.',
         examples: ['Готовится к ОГЭ по математике'],
       }),
+    lessonsLeft: z
+      .number()
+      .int()
+      .meta({
+        description:
+          'Lessons left on the student balance across all non-canceled packages.',
+        examples: [6],
+      }),
     createdAt: z.iso.datetime().meta({
       description: 'Creation date in ISO 8601 format.',
       examples: ['2026-10-22T12:00:00.000Z'],
@@ -133,3 +141,43 @@ export const studentListResponseSchema = z
   });
 
 export type StudentListResponseDto = z.infer<typeof studentListResponseSchema>;
+
+export const studentBalanceResponseSchema = z
+  .object({
+    lessonsTotal: z
+      .number()
+      .int()
+      .meta({
+        description: 'Lessons credited by all non-canceled packages.',
+        examples: [16],
+      }),
+    lessonsUsed: z
+      .number()
+      .int()
+      .meta({
+        description: 'Lessons already used from these packages.',
+        examples: [10],
+      }),
+    lessonsLeft: z
+      .number()
+      .int()
+      .meta({
+        description: 'Lessons left on the balance.',
+        examples: [6],
+      }),
+    lastPaidOn: z.iso
+      .date()
+      .nullable()
+      .meta({
+        description: 'Date of the last completed payment (YYYY-MM-DD).',
+        examples: ['2026-10-24'],
+      }),
+  })
+  .meta({
+    id: 'StudentBalanceResponse',
+    description: 'Lesson balance of a student.',
+  });
+
+export type StudentBalanceResponseDto = z.infer<
+  typeof studentBalanceResponseSchema
+>;

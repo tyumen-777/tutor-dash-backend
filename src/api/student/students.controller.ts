@@ -35,6 +35,8 @@ import {
   type ListStudentsQueryDto,
 } from './dto/list-students-query.dto.js';
 import {
+  studentBalanceResponseSchema,
+  type StudentBalanceResponseDto,
   studentListResponseSchema,
   type StudentListResponseDto,
   studentResponseSchema,
@@ -82,6 +84,26 @@ export class StudentsController {
     @Param('id', { schema: z.uuid() }) id: string,
   ): Promise<StudentResponseDto> {
     return this.studentsService.getStudent(session, id);
+  }
+
+  @RequireActiveOrg()
+  @OrgRoles(['owner', 'admin', 'manager', 'accountant'])
+  @Get(':id/balance')
+  @ApiOperation({
+    summary: 'Баланс занятий ученика',
+    description:
+      'Возвращает, сколько занятий начислено по оплаченным пакетам, сколько использовано и сколько осталось, а также дату последней оплаты. Отменённые пакеты не учитываются.',
+  })
+  @ApiOkResponse({
+    description: 'Баланс занятий.',
+    standardSchema: studentBalanceResponseSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Ученик не найден.' })
+  getStudentBalance(
+    @Session() session: UserSession,
+    @Param('id', { schema: z.uuid() }) id: string,
+  ): Promise<StudentBalanceResponseDto> {
+    return this.studentsService.getStudentBalance(session, id);
   }
 
   @RequireActiveOrg()

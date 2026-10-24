@@ -6,11 +6,16 @@ import {
 } from '@nestjs/common';
 
 import { Prisma } from '../../generated/prisma/client.js';
-import { StudentStatus } from '../../generated/prisma/enums.js';
+import {
+  PaymentStatus,
+  StudentStatus,
+  SubscriptionStatus,
+} from '../../generated/prisma/enums.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { CreateStudentDto } from './dto/create-student.dto.js';
 import type { ListStudentsQueryDto } from './dto/list-students-query.dto.js';
 import type {
+  StudentBalanceResponseDto,
   StudentListResponseDto,
   StudentResponseDto,
 } from './dto/student-response.dto.js';
@@ -74,8 +79,14 @@ export class StudentsService {
       this.prisma.student.count({ where }),
     ]);
 
+    const lessonsLeft = await this.getLessonsLeft(
+      students.map((student) => student.id),
+    );
+
     return {
-      items: students.map((student) => this.toStudentResponse(student)),
+      items: students.map((student) =>
+        this.toStudentResponse(student, lessonsLeft.get(student.id) ?? 0),
+      ),
       total,
       limit: query.limit,
       offset: query.offset,
@@ -88,8 +99,39 @@ export class StudentsService {
   ): Promise<StudentResponseDto> {
     const organizationId = this.getOrganizationId(session);
     const student = await this.findStudent(organizationId, id, studentInclude);
+    const lessonsLeft = await this.getLessonsLeft([student.id]);
 
-    return this.toStudentResponse(student);
+    return this.toStudentResponse(student, lessonsLeft.get(student.id) ?? 0);
+  }
+
+  async getStudentBalance(
+    session: OrganizationSession,
+    id: string,
+  ): Promise<StudentBalanceResponseDto> {
+    const organizationId = this.getOrganizationId(session);
+    await this.findStudent(organizationId, id);
+
+    const [packages, lastPayment] = await this.prisma.$transaction([
+      this.prisma.studentSubscription.aggregate({
+        where: { studentId: id, status: { not: SubscriptionStatus.CANCELED } },
+        _sum: { lessonsTotal: true, lessonsLeft: true },
+      }),
+      this.prisma.payment.findFirst({
+        where: { studentId: id, status: PaymentStatus.COMPLETED },
+        orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
+        select: { paidAt: true },
+      }),
+    ]);
+
+    const lessonsTotal = packages._sum.lessonsTotal ?? 0;
+    const lessonsLeft = packages._sum.lessonsLeft ?? 0;
+
+    return {
+      lessonsTotal,
+      lessonsUsed: lessonsTotal - lessonsLeft,
+      lessonsLeft,
+      lastPaidOn: lastPayment ? this.formatDate(lastPayment.paidAt) : null,
+    };
   }
 
   async createStudent(
@@ -120,7 +162,7 @@ export class StudentsService {
       include: studentInclude,
     });
 
-    return this.toStudentResponse(student);
+    return this.toStudentResponse(student, 0);
   }
 
   async deleteStudent(session: OrganizationSession, id: string): Promise<void> {
@@ -198,6 +240,30 @@ export class StudentsService {
     }
   }
 
+  private async getLessonsLeft(
+    studentIds: string[],
+  ): Promise<Map<string, number>> {
+    if (studentIds.length === 0) {
+      return new Map();
+    }
+
+    const balances = await this.prisma.studentSubscription.groupBy({
+      by: ['studentId'],
+      where: {
+        studentId: { in: studentIds },
+        status: { not: SubscriptionStatus.CANCELED },
+      },
+      _sum: { lessonsLeft: true },
+    });
+
+    return new Map(
+      balances.map((balance) => [
+        balance.studentId,
+        balance._sum.lessonsLeft ?? 0,
+      ]),
+    );
+  }
+
   private studentHasHistoryException(): ConflictException {
     return new ConflictException(
       'Student has lessons, subscriptions or payments and cannot be deleted; archive the student instead',
@@ -218,7 +284,10 @@ export class StudentsService {
     return organizationId;
   }
 
-  private toStudentResponse(student: StudentWithTeacher): StudentResponseDto {
+  private toStudentResponse(
+    student: StudentWithTeacher,
+    lessonsLeft: number,
+  ): StudentResponseDto {
     return {
       id: student.id,
       firstName: student.firstName,
@@ -232,6 +301,7 @@ export class StudentsService {
       timezone: student.timezone,
       status: student.status,
       note: student.note,
+      lessonsLeft,
       createdAt: student.createdAt.toISOString(),
     };
   }
