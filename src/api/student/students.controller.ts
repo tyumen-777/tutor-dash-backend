@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -42,6 +43,10 @@ import {
   studentResponseSchema,
   type StudentResponseDto,
 } from './dto/student-response.dto.js';
+import {
+  updateStudentSchema,
+  type UpdateStudentDto,
+} from './dto/update-student.dto.js';
 import { StudentsService } from './students.service.js';
 
 @Controller('students')
@@ -127,6 +132,34 @@ export class StudentsController {
     @Body({ schema: createStudentSchema }) body: CreateStudentDto,
   ): Promise<StudentResponseDto> {
     return this.studentsService.createStudent(session, body);
+  }
+
+  @RequireActiveOrg()
+  @OrgRoles(['owner', 'admin', 'manager'])
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Изменение ученика',
+    description:
+      'Меняет данные ученика: имя, фамилию, контакты, преподавателя, уровень, дату рождения, часовой пояс, статус (лид или активный) и заметку. Пустая строка или null очищает необязательное поле.',
+  })
+  @ApiOkResponse({
+    description: 'Ученик изменён.',
+    standardSchema: studentResponseSchema,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Преподаватель не найден в организации или находится в архиве.',
+  })
+  @ApiNotFoundResponse({ description: 'Ученик не найден.' })
+  @ApiConflictResponse({
+    description: 'Статус приостановленного или архивного ученика не меняется.',
+  })
+  updateStudent(
+    @Session() session: UserSession,
+    @Param('id', { schema: z.uuid() }) id: string,
+    @Body({ schema: updateStudentSchema }) body: UpdateStudentDto,
+  ): Promise<StudentResponseDto> {
+    return this.studentsService.updateStudent(session, id, body);
   }
 
   @RequireActiveOrg()

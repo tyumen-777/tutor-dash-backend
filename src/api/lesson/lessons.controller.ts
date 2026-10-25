@@ -93,7 +93,10 @@ export class LessonsController {
     description:
       'Ученик или преподаватель не найден либо в архиве, или занятие в будущем.',
   })
-  @ApiConflictResponse({ description: 'У ученика нет оплаченных занятий.' })
+  @ApiConflictResponse({
+    description:
+      'У ученика нет оплаченных занятий или у преподавателя уже есть занятие в это время.',
+  })
   createLesson(
     @Session() session: UserSession,
     @Body({ schema: createLessonSchema }) body: CreateLessonDto,

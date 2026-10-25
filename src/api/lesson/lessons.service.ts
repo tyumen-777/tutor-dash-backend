@@ -170,48 +170,63 @@ export class LessonsService {
       throw new BadRequestException('Teacher is archived');
     }
 
-    const lesson = await this.prisma.$transaction(async (tx) => {
-      const subscriptionId = await this.deductLesson(tx, dto.studentId);
+    let lesson: LessonWithRelations;
 
-      const created = await tx.lesson.create({
-        data: {
-          organizationId,
-          teacherId: teacher.id,
-          startsAt,
-          endsAt: new Date(startsAt.getTime() + dto.durationMin * MINUTE_MS),
-          status: LessonStatus.COMPLETED,
-          topic: dto.topic ?? null,
-          homework: dto.homework ?? null,
-          teacherRate: teacher.hourlyRate,
-          teacherPay: calculateTeacherPay(teacher.hourlyRate, dto.durationMin),
-          completedAt: new Date(),
-          participants: {
-            create: {
-              organizationId,
-              studentId: dto.studentId,
-              attendance: AttendanceStatus.ATTENDED,
+    try {
+      lesson = await this.prisma.$transaction(async (tx) => {
+        const subscriptionId = await this.deductLesson(tx, dto.studentId);
+
+        const created = await tx.lesson.create({
+          data: {
+            organizationId,
+            teacherId: teacher.id,
+            startsAt,
+            endsAt: new Date(startsAt.getTime() + dto.durationMin * MINUTE_MS),
+            status: LessonStatus.COMPLETED,
+            topic: dto.topic ?? null,
+            homework: dto.homework ?? null,
+            teacherRate: teacher.hourlyRate,
+            teacherPay: calculateTeacherPay(
+              teacher.hourlyRate,
+              dto.durationMin,
+            ),
+            completedAt: new Date(),
+            participants: {
+              create: {
+                organizationId,
+                studentId: dto.studentId,
+                attendance: AttendanceStatus.ATTENDED,
+              },
             },
           },
-        },
-      });
+        });
 
-      await tx.subscriptionUsage.create({
-        data: {
-          organizationId,
-          subscriptionId,
-          studentId: dto.studentId,
-          lessonId: created.id,
-          type: SubscriptionUsageType.LESSON,
-          lessonsDelta: -1,
-          createdByUserId: session.user.id,
-        },
-      });
+        await tx.subscriptionUsage.create({
+          data: {
+            organizationId,
+            subscriptionId,
+            studentId: dto.studentId,
+            lessonId: created.id,
+            type: SubscriptionUsageType.LESSON,
+            lessonsDelta: -1,
+            createdByUserId: session.user.id,
+          },
+        });
 
-      return tx.lesson.findUniqueOrThrow({
-        where: { id: created.id },
-        include: lessonInclude,
+        return tx.lesson.findUniqueOrThrow({
+          where: { id: created.id },
+          include: lessonInclude,
+        });
       });
-    });
+    } catch (error) {
+      if (this.isTeacherOverlapError(error)) {
+        throw new ConflictException(
+          'Teacher already has a lesson at this time',
+        );
+      }
+
+      throw error;
+    }
 
     return this.toLessonResponse(lesson);
   }
@@ -339,6 +354,14 @@ export class LessonsService {
     }
 
     return lesson;
+  }
+
+  // Пересечение ловит exclusion constraint в БД, поэтому гонки не страшны
+  private isTeacherOverlapError(error: unknown): boolean {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.message.includes('lessons_teacher_no_overlap')
+    );
   }
 
   private noLessonsLeftException(): ConflictException {

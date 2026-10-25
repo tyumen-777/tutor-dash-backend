@@ -14,6 +14,7 @@ import {
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { CreateStudentDto } from './dto/create-student.dto.js';
 import type { ListStudentsQueryDto } from './dto/list-students-query.dto.js';
+import type { UpdateStudentDto } from './dto/update-student.dto.js';
 import type {
   StudentBalanceResponseDto,
   StudentListResponseDto,
@@ -163,6 +164,68 @@ export class StudentsService {
     });
 
     return this.toStudentResponse(student, 0);
+  }
+
+  async updateStudent(
+    session: OrganizationSession,
+    id: string,
+    dto: UpdateStudentDto,
+  ): Promise<StudentResponseDto> {
+    const organizationId = this.getOrganizationId(session);
+    const student = await this.findStudent(organizationId, id);
+
+    if (
+      dto.status !== undefined &&
+      dto.status !== student.status &&
+      student.status !== StudentStatus.LEAD &&
+      student.status !== StudentStatus.ACTIVE
+    ) {
+      throw new ConflictException(
+        'Only a lead or an active student can change status',
+      );
+    }
+
+    // Уже назначенного преподавателя оставляем, даже если он в архиве
+    if (dto.teacherId && dto.teacherId !== student.teacherId) {
+      await this.assertActiveTeacher(organizationId, dto.teacherId);
+    }
+
+    const data: Prisma.StudentUncheckedUpdateInput = {
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      email: dto.email,
+      phone: dto.phone,
+      telegram: dto.telegram,
+      teacherId: dto.teacherId,
+      level: dto.level,
+      birthDate:
+        dto.birthDate === undefined
+          ? undefined
+          : dto.birthDate && this.parseDate(dto.birthDate),
+      timezone: dto.timezone,
+      status: dto.status,
+      note: dto.note,
+    };
+
+    try {
+      const updated = await this.prisma.student.update({
+        where: { id },
+        data,
+        include: studentInclude,
+      });
+      const lessonsLeft = await this.getLessonsLeft([updated.id]);
+
+      return this.toStudentResponse(updated, lessonsLeft.get(updated.id) ?? 0);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException('Student not found');
+      }
+
+      throw error;
+    }
   }
 
   async deleteStudent(session: OrganizationSession, id: string): Promise<void> {
