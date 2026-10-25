@@ -18,6 +18,15 @@ export const userOrganizationSchema = z
       description: 'Role of the user in the organization.',
       examples: ['owner'],
     }),
+    timezone: z.string().meta({
+      description:
+        'IANA timezone of the organization. Lesson times and reporting periods are shown in it.',
+      examples: ['Europe/Moscow'],
+    }),
+    currency: z.string().meta({
+      description: 'ISO 4217 currency code of the organization.',
+      examples: ['RUB'],
+    }),
   })
   .meta({
     id: 'UserOrganization',

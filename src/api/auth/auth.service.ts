@@ -143,7 +143,15 @@ export class AuthApiService {
       orderBy: { organization: { name: 'asc' } },
       select: {
         role: true,
-        organization: { select: { id: true, name: true, slug: true } },
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            timezone: true,
+            currency: true,
+          },
+        },
       },
     });
 
