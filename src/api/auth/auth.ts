@@ -69,6 +69,8 @@ const trustedProxies = (process.env.TRUSTED_PROXIES ?? '')
   .map((proxy) => proxy.trim())
   .filter(Boolean);
 
+const cookieDomain = process.env.COOKIE_DOMAIN?.trim() || undefined;
+
 export const auth = betterAuth({
   basePath: '/api/auth',
   baseURL: process.env.BETTER_AUTH_URL,
@@ -79,6 +81,11 @@ export const auth = betterAuth({
   disabledPaths: disabledOrganizationPaths,
   advanced: {
     ipAddress: trustedProxies.length > 0 ? { trustedProxies } : undefined,
+    // Фронт (edudash.org) проверяет cookie сессии в proxy.ts, а ставит её
+    // API (api.edudash.org) — без общего домена фронт её не увидит.
+    crossSubDomainCookies: cookieDomain
+      ? { enabled: true, domain: cookieDomain }
+      : undefined,
   },
   database: prismaAdapter(authPrisma, {
     provider: 'postgresql',

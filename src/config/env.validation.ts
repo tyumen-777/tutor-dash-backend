@@ -17,6 +17,10 @@ const envSchema = z.object({
 
   FRONTEND_ORIGIN: z.string().url(),
 
+  // Общий домен для cookie сессии (например, edudash.org), чтобы её видели
+  // и api.edudash.org, и edudash.org. Пусто — cookie только для домена API.
+  COOKIE_DOMAIN: z.string().min(1).optional(),
+
   // IP или CIDR reverse proxy через запятую. Пусто — заголовкам
   // X-Forwarded-* не доверяем, IP клиента берётся из сокета.
   TRUSTED_PROXIES: z
