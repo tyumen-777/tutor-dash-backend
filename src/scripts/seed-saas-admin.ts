@@ -5,7 +5,7 @@ import { hashPassword } from 'better-auth/crypto';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
-import { PrismaClient } from '../src/generated/prisma/client.js';
+import { PrismaClient } from '../generated/prisma/client.js';
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
@@ -17,6 +17,8 @@ const envSchema = z.object({
 const env = envSchema.parse(process.env);
 const adapter = new PrismaPg({
   connectionString: env.DATABASE_URL,
+  // Недоступная база должна давать ошибку, а не бесконечное ожидание
+  connectionTimeoutMillis: 10_000,
 });
 const prisma = new PrismaClient({ adapter });
 
