@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AdminModule } from './admin/admin.module.js';
 import { BackendAuthModule } from './auth/backend-auth.module.js';
+import { ExpenseModule } from './expense/expense.module.js';
 import { HealthModule } from './health/health.module.js';
 import { LessonModule } from './lesson/lesson.module.js';
 import { OrganizationModule } from './organization/organization.module.js';
@@ -16,6 +17,7 @@ import { TeacherModule } from './teacher/teacher.module.js';
     TeacherModule,
     StudentModule,
     PaymentModule,
+    ExpenseModule,
     LessonModule,
     HealthModule,
   ],

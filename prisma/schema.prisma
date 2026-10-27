@@ -33,6 +33,7 @@ model user {
   sentInvitations invitation[]
   studentProfiles Student[]
   createdPayments Payment[]
+  createdExpenses Expense[]
 }
 
 model session {
@@ -109,6 +110,7 @@ model organization {
   scheduleRules      ScheduleRule[]
   lessons            Lesson[]
   lessonParticipants LessonParticipant[]
+  expenses           Expense[]
 }
 
 model member {
@@ -188,6 +190,24 @@ enum PaymentStatus {
   COMPLETED
   CANCELED
   REFUNDED
+}
+
+enum ExpenseCategory {
+  RENT
+  SALARY
+  MATERIALS
+  MARKETING
+  UTILITIES
+  SOFTWARE
+  HOUSEHOLD
+  TAXES
+  OTHER
+}
+
+enum ExpenseStatus {
+  PAID
+  PENDING // счёт выставлен, но ещё не оплачен
+  CANCELED
 }
 
 enum LessonStatus {
@@ -305,6 +325,7 @@ model Teacher {
   students      Student[]
   scheduleRules ScheduleRule[]
   lessons       Lesson[]
+  expenses      Expense[]
 
   @@index([organizationId, isActive])
   @@index([organizationId, fullName])
@@ -414,6 +435,34 @@ model Payment {
   @@index([studentId, paidAt])
   @@index([subscriptionId])
   @@map("payments")
+}
+
+// Расход школы: аренда, зарплата, материалы и т. п.
+model Expense {
+  id              String          @id @default(uuid(7)) @db.Uuid
+  organizationId  String
+  spentOn         DateTime        @db.Date
+  amount          Decimal         @db.Decimal(12, 2)
+  currency        String          @db.Char(3)
+  category        ExpenseCategory
+  recipient       String
+  method          PaymentMethod
+  status          ExpenseStatus   @default(PAID)
+  description     String
+  comment         String?
+  // Преподаватель, которому выплачена зарплата
+  teacherId       String?         @db.Uuid
+  createdByUserId String
+  createdAt       DateTime        @default(now()) @db.Timestamptz
+  updatedAt       DateTime        @updatedAt @db.Timestamptz
+
+  organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teacher      Teacher?     @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  createdBy    user         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, spentOn])
+  @@index([teacherId])
+  @@map("expenses")
 }
 
 // Шаблон повторяющегося занятия: «каждый вторник в 18:00, 60 минут».

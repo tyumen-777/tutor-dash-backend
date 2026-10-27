@@ -474,6 +474,33 @@ create index idx_lesson_credit_usages_credit
 
 `lesson_credits` поддерживает текущий UI вида "баланс: 4 занятия". Позже эту модель можно заменить или расширить транзакциями внутреннего кошелька, не меняя занятия и оплаты.
 
+### Расходы школы
+
+```sql
+create table expenses (
+  id uuid primary key,
+  organization_id text not null references organization(id) on delete cascade,
+  spent_on date not null,
+  amount numeric(12,2) not null check (amount > 0),
+  currency char(3) not null,
+  category expense_category not null, -- rent, salary, materials, marketing, utilities, software, household, taxes, other
+  recipient text not null,
+  method payment_method not null,
+  status expense_status not null default 'paid', -- paid, pending, canceled
+  description text not null,
+  comment text,
+  teacher_id uuid references teachers(id) on delete set null, -- только для salary
+  created_by_user_id text not null references "user"(id) on delete restrict,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null
+);
+
+create index on expenses (organization_id, spent_on);
+create index on expenses (teacher_id);
+```
+
+Расход не удаляется, а отменяется (`canceled`): он остаётся в истории, но не входит в итоги. Итоги по периоду считаются отдельно для оплаченных и ожидающих оплаты расходов.
+
 ## Заметки, файлы и аудит
 
 ```sql
