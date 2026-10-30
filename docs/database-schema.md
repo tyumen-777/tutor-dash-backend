@@ -213,6 +213,28 @@ create index idx_student_guardians_guardian
 
 ## Учебный каталог
 
+### Уровни обучения
+
+```sql
+create table study_levels (
+  id uuid primary key,
+  organization_id text not null references organization(id) on delete cascade,
+  code varchar(20) not null,   -- обозначение: A1, 7 класс, ОГЭ
+  name varchar(100) not null,  -- название: Beginner
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null,
+  unique (organization_id, code)
+);
+
+alter table students
+  add column level_id uuid references study_levels(id) on delete restrict;
+create index on students (level_id);
+```
+
+Справочник ведётся в «Настройки → Компания». У ученика уровень выбирается из справочника; уровень, назначенный ученикам, удалить нельзя.
+
+### Языки, курсы и группы (план)
+
 ```sql
 create table languages (
   id uuid primary key default gen_random_uuid(),

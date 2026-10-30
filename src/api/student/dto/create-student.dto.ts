@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { isTimezone } from '../../shared/timezone.js';
+
 const isBlank = (value: unknown): boolean =>
   typeof value === 'string' && value.trim() === '';
 
@@ -18,24 +20,10 @@ export const clearableText = <T extends z.ZodType>(schema: T) =>
     schema.nullable().optional(),
   );
 
-const isTimezone = (value: string): boolean => {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-export const studentFirstNameSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(100)
-  .meta({
-    description: 'First name of the student.',
-    example: 'Анна',
-  });
+export const studentFirstNameSchema = z.string().trim().min(1).max(100).meta({
+  description: 'First name of the student.',
+  example: 'Анна',
+});
 
 export const studentLastNameSchema = z.string().trim().max(100).meta({
   description: 'Last name of the student.',
@@ -74,13 +62,14 @@ export const studentTelegramSchema = z
   });
 
 export const studentTeacherIdSchema = z.uuid().meta({
-  description: 'ID of the main teacher (an active teacher of the organization).',
+  description:
+    'ID of the main teacher (an active teacher of the organization).',
   example: '01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b',
 });
 
-export const studentLevelSchema = z.string().trim().max(50).meta({
-  description: 'Student level in free form, e.g. "A2", "7 класс", "ОГЭ".',
-  example: 'B1',
+export const studentLevelIdSchema = z.uuid().meta({
+  description: 'ID of a study level of the organization.',
+  example: '01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b',
 });
 
 export const studentBirthDateSchema = z.iso
@@ -121,7 +110,7 @@ export const createStudentSchema = z
     phone: optionalText(studentPhoneSchema),
     telegram: optionalText(studentTelegramSchema),
     teacherId: optionalText(studentTeacherIdSchema),
-    level: optionalText(studentLevelSchema),
+    levelId: optionalText(studentLevelIdSchema),
     birthDate: optionalText(studentBirthDateSchema),
     timezone: optionalText(studentTimezoneSchema),
     status: studentEditableStatusSchema.default('ACTIVE').meta({

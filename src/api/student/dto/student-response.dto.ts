@@ -58,11 +58,23 @@ export const studentResponseSchema = z
         description: 'Main teacher of the student.',
       }),
     level: z
-      .string()
+      .object({
+        id: z.uuid().meta({
+          description: 'Study level ID.',
+          examples: ['01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b'],
+        }),
+        code: z.string().meta({
+          description: 'Short level code.',
+          examples: ['B1'],
+        }),
+        name: z.string().meta({
+          description: 'Level name.',
+          examples: ['Intermediate'],
+        }),
+      })
       .nullable()
       .meta({
-        description: 'Student level in free form.',
-        examples: ['B1'],
+        description: 'Study level of the student.',
       }),
     birthDate: z.iso
       .date()

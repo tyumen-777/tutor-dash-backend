@@ -1,8 +1,4 @@
-import {
-  Controller,
-  Get,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
@@ -18,7 +14,8 @@ export class HealthController {
   @Get()
   @ApiOperation({
     summary: 'Проверка работоспособности',
-    description: 'Отвечает 200, если приложение запущено и база данных доступна.',
+    description:
+      'Отвечает 200, если приложение запущено и база данных доступна.',
   })
   @ApiOkResponse({ description: 'Сервис работает.' })
   async check(): Promise<{ status: 'ok' }> {

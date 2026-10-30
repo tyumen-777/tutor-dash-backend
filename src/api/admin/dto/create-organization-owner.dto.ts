@@ -17,12 +17,16 @@ export const createOrganizationOwnerSchema = z
         description: 'URL-safe organization slug.',
         example: 'tutor-dash-academy',
       }),
-    ownerEmail: z.string().trim().toLowerCase().pipe(
-      z.email().meta({
-        description: 'Email address for the first organization owner.',
-        example: 'owner@example.com',
-      }),
-    ),
+    ownerEmail: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .pipe(
+        z.email().meta({
+          description: 'Email address for the first organization owner.',
+          example: 'owner@example.com',
+        }),
+      ),
     ownerName: z.string().trim().min(1).meta({
       description: 'Name of the first organization owner.',
       example: 'Ada Lovelace',

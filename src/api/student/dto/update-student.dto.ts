@@ -7,7 +7,7 @@ import {
   studentEmailSchema,
   studentFirstNameSchema,
   studentLastNameSchema,
-  studentLevelSchema,
+  studentLevelIdSchema,
   studentNoteSchema,
   studentPhoneSchema,
   studentTeacherIdSchema,
@@ -24,7 +24,7 @@ export const updateStudentSchema = z
     phone: clearableText(studentPhoneSchema),
     telegram: clearableText(studentTelegramSchema),
     teacherId: clearableText(studentTeacherIdSchema),
-    level: clearableText(studentLevelSchema),
+    levelId: clearableText(studentLevelIdSchema),
     birthDate: clearableText(studentBirthDateSchema),
     timezone: clearableText(studentTimezoneSchema),
     status: studentEditableStatusSchema.optional().meta({

@@ -27,6 +27,7 @@ type OrganizationSession = {
 
 const studentInclude = {
   teacher: { select: { id: true, fullName: true, isActive: true } },
+  level: { select: { id: true, code: true, name: true } },
 } satisfies Prisma.StudentInclude;
 
 type StudentWithTeacher = Prisma.StudentGetPayload<{
@@ -145,6 +146,10 @@ export class StudentsService {
       await this.assertActiveTeacher(organizationId, dto.teacherId);
     }
 
+    if (dto.levelId) {
+      await this.assertStudyLevel(organizationId, dto.levelId);
+    }
+
     const student = await this.prisma.student.create({
       data: {
         organizationId,
@@ -154,7 +159,7 @@ export class StudentsService {
         email: dto.email ?? null,
         phone: dto.phone ?? null,
         telegram: dto.telegram ?? null,
-        level: dto.level ?? null,
+        levelId: dto.levelId ?? null,
         birthDate: dto.birthDate ? this.parseDate(dto.birthDate) : null,
         timezone: dto.timezone ?? null,
         status: dto.status,
@@ -190,6 +195,10 @@ export class StudentsService {
       await this.assertActiveTeacher(organizationId, dto.teacherId);
     }
 
+    if (dto.levelId && dto.levelId !== student.levelId) {
+      await this.assertStudyLevel(organizationId, dto.levelId);
+    }
+
     const data: Prisma.StudentUncheckedUpdateInput = {
       firstName: dto.firstName,
       lastName: dto.lastName,
@@ -197,7 +206,7 @@ export class StudentsService {
       phone: dto.phone,
       telegram: dto.telegram,
       teacherId: dto.teacherId,
-      level: dto.level,
+      levelId: dto.levelId,
       birthDate:
         dto.birthDate === undefined
           ? undefined
@@ -300,6 +309,20 @@ export class StudentsService {
 
     if (!teacher.isActive) {
       throw new BadRequestException('Teacher is archived');
+    }
+  }
+
+  private async assertStudyLevel(
+    organizationId: string,
+    levelId: string,
+  ): Promise<void> {
+    const level = await this.prisma.studyLevel.findFirst({
+      where: { id: levelId, organizationId },
+      select: { id: true },
+    });
+
+    if (!level) {
+      throw new BadRequestException('Study level not found');
     }
   }
 

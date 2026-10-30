@@ -111,6 +111,7 @@ model organization {
   lessons            Lesson[]
   lessonParticipants LessonParticipant[]
   expenses           Expense[]
+  studyLevels        StudyLevel[]
 }
 
 model member {
@@ -237,7 +238,7 @@ model Student {
   // Username в Telegram без «@»
   telegram       String?
   // Уровень подготовки в свободной форме: «A2», «7 класс», «ОГЭ»
-  level          String?
+  levelId        String?       @db.Uuid
   birthDate      DateTime?     @db.Date
   // IANA timezone ученика (онлайн-занятия, уведомления); null = timezone школы
   timezone       String?
@@ -249,6 +250,7 @@ model Student {
   organization  organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user          user?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
   teacher       Teacher?              @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  level         StudyLevel?           @relation(fields: [levelId], references: [id], onDelete: Restrict)
   guardians     StudentGuardian[]
   subscriptions StudentSubscription[]
   usages        SubscriptionUsage[]
@@ -260,10 +262,27 @@ model Student {
   @@index([organizationId, status])
   @@index([organizationId, lastName, firstName])
   @@index([teacherId])
+  @@index([levelId])
   @@map("students")
 }
 
 // Родитель / законный представитель. Один родитель может быть у нескольких детей.
+// Справочник уровней обучения школы: обозначение (A1) и название (Beginner)
+model StudyLevel {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String
+  code           String   @db.VarChar(20)
+  name           String   @db.VarChar(100)
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @updatedAt @db.Timestamptz
+
+  organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  students     Student[]
+
+  @@unique([organizationId, code])
+  @@map("study_levels")
+}
+
 model Guardian {
   id             String   @id @default(uuid(7)) @db.Uuid
   organizationId String
