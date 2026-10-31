@@ -4,6 +4,10 @@ export const LESSON_DURATIONS = [45, 60] as const;
 
 export type LessonDuration = (typeof LESSON_DURATIONS)[number];
 
+export function isLessonDuration(value: number): value is LessonDuration {
+  return (LESSON_DURATIONS as readonly number[]).includes(value);
+}
+
 // Неполный час считается пропорционально ставке и округляется вверх до 10
 const PAY_ROUNDING_STEP = 10;
 

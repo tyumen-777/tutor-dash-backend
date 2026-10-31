@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { cancelLessonSchema } from './cancel-lesson.dto.js';
 import { createLessonSchema } from './create-lesson.dto.js';
 import { listLessonsQuerySchema } from './list-lessons-query.dto.js';
+import { updateLessonSchema } from './update-lesson.dto.js';
 
 const validLesson = {
   studentId: '01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b',
@@ -43,6 +44,23 @@ describe('createLessonSchema', () => {
     expect(
       createLessonSchema.safeParse({ ...validLesson, ...override }).success,
     ).toBe(false);
+  });
+});
+
+describe('updateLessonSchema', () => {
+  it('accepts a partial update and keeps an empty string to clear text', () => {
+    expect(
+      updateLessonSchema.parse({ durationMin: '60', topic: ' ', homework: '' }),
+    ).toEqual({ durationMin: 60, topic: '', homework: '' });
+  });
+
+  it.each([
+    ['student change', { studentId: '01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b' }],
+    ['30 minutes', { durationMin: 30 }],
+    ['invalid start', { startsAt: '24.10.2026 18:00' }],
+    ['status change', { status: 'CANCELED' }],
+  ])('rejects %s', (_, body) => {
+    expect(updateLessonSchema.safeParse(body).success).toBe(false);
   });
 });
 

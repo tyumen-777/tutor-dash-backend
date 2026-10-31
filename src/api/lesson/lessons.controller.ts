@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -33,6 +41,10 @@ import {
   listLessonsQuerySchema,
   type ListLessonsQueryDto,
 } from './dto/list-lessons-query.dto.js';
+import {
+  updateLessonSchema,
+  type UpdateLessonDto,
+} from './dto/update-lesson.dto.js';
 import { LessonsService } from './lessons.service.js';
 
 @Controller('lessons')
@@ -102,6 +114,35 @@ export class LessonsController {
     @Body({ schema: createLessonSchema }) body: CreateLessonDto,
   ): Promise<LessonResponseDto> {
     return this.lessonsService.createLesson(session, body);
+  }
+
+  @RequireActiveOrg()
+  @OrgRoles(['owner', 'admin', 'manager'])
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Изменение занятия',
+    description:
+      'Меняет тему, домашнее задание, время, длительность или преподавателя проведённого занятия. Начисление пересчитывается: при смене преподавателя — по его текущей ставке, иначе по ставке, зафиксированной при внесении. Списание у ученика не меняется; сменить ученика нельзя — отмените занятие и внесите заново.',
+  })
+  @ApiOkResponse({
+    description: 'Занятие изменено.',
+    standardSchema: lessonResponseSchema,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Преподаватель не найден либо в архиве, или занятие в будущем.',
+  })
+  @ApiNotFoundResponse({ description: 'Занятие не найдено.' })
+  @ApiConflictResponse({
+    description:
+      'Занятие отменено или у преподавателя уже есть занятие в это время.',
+  })
+  updateLesson(
+    @Session() session: UserSession,
+    @Param('id', { schema: z.uuid() }) id: string,
+    @Body({ schema: updateLessonSchema }) body: UpdateLessonDto,
+  ): Promise<LessonResponseDto> {
+    return this.lessonsService.updateLesson(session, id, body);
   }
 
   @RequireActiveOrg()

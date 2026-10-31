@@ -17,11 +17,12 @@ import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { CancelLessonDto } from './dto/cancel-lesson.dto.js';
 import type { CreateLessonDto } from './dto/create-lesson.dto.js';
 import type { ListLessonsQueryDto } from './dto/list-lessons-query.dto.js';
+import type { UpdateLessonDto } from './dto/update-lesson.dto.js';
 import type {
   LessonListResponseDto,
   LessonResponseDto,
 } from './dto/lesson-response.dto.js';
-import { calculateTeacherPay } from './lesson-pay.js';
+import { calculateTeacherPay, isLessonDuration } from './lesson-pay.js';
 
 type OrganizationSession = {
   user: { id: string };
@@ -229,6 +230,97 @@ export class LessonsService {
     }
 
     return this.toLessonResponse(lesson);
+  }
+
+  async updateLesson(
+    session: OrganizationSession,
+    id: string,
+    dto: UpdateLessonDto,
+  ): Promise<LessonResponseDto> {
+    const organizationId = this.getOrganizationId(session);
+    const lesson = await this.findLesson(organizationId, id);
+
+    if (lesson.status !== LessonStatus.COMPLETED) {
+      throw new ConflictException('Only held lessons can be edited');
+    }
+
+    const startsAt = dto.startsAt ? new Date(dto.startsAt) : lesson.startsAt;
+
+    if (startsAt.getTime() > Date.now()) {
+      throw new BadRequestException('startsAt cannot be in the future');
+    }
+
+    const durationMin =
+      dto.durationMin ??
+      Math.round(
+        (lesson.endsAt.getTime() - lesson.startsAt.getTime()) / MINUTE_MS,
+      );
+
+    if (!isLessonDuration(durationMin)) {
+      throw new BadRequestException('durationMin is required');
+    }
+
+    const teacherChanged =
+      dto.teacherId !== undefined && dto.teacherId !== lesson.teacherId;
+    // Ставка зафиксирована при внесении; новая берётся только при смене преподавателя
+    let teacherRate = lesson.teacherRate;
+
+    if (teacherChanged || !teacherRate) {
+      const teacher = await this.prisma.teacher.findFirst({
+        where: { id: dto.teacherId ?? lesson.teacherId, organizationId },
+        select: { isActive: true, hourlyRate: true },
+      });
+
+      if (!teacher) {
+        throw new BadRequestException('Teacher not found');
+      }
+
+      if (teacherChanged && !teacher.isActive) {
+        throw new BadRequestException('Teacher is archived');
+      }
+
+      teacherRate = teacher.hourlyRate;
+    }
+
+    let updated: LessonWithRelations;
+
+    try {
+      updated = await this.prisma.$transaction(async (tx) => {
+        // Условие на статус защищает от параллельной отмены
+        const { count } = await tx.lesson.updateMany({
+          where: { id, organizationId, status: LessonStatus.COMPLETED },
+          data: {
+            teacherId: dto.teacherId,
+            startsAt,
+            endsAt: new Date(startsAt.getTime() + durationMin * MINUTE_MS),
+            teacherRate,
+            teacherPay: calculateTeacherPay(teacherRate, durationMin),
+            topic: dto.topic === undefined ? undefined : dto.topic || null,
+            homework:
+              dto.homework === undefined ? undefined : dto.homework || null,
+          },
+        });
+
+        if (count === 0) {
+          throw new ConflictException('Only held lessons can be edited');
+        }
+
+        return tx.lesson.findUniqueOrThrow({
+          where: { id },
+          include: lessonInclude,
+        });
+      });
+    } catch (error) {
+      if (this.isTeacherOverlapError(error)) {
+        throw new ConflictException(
+          'Teacher already has a lesson at this time',
+        );
+      }
+
+      throw error;
+    }
+
+    return this.toLessonResponse(updated);
   }
 
   async cancelLesson(
