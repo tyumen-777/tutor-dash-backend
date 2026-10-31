@@ -5,6 +5,7 @@ export const lessonStatusSchema = z.enum([
   'COMPLETED',
   'CANCELED',
   'RESCHEDULED',
+  'DELETED',
 ]);
 
 export const listLessonsQuerySchema = z
@@ -26,7 +27,8 @@ export const listLessonsQuerySchema = z
       example: '01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b',
     }),
     status: lessonStatusSchema.optional().meta({
-      description: 'Filter by lesson status.',
+      description:
+        'Filter by lesson status. Without it deleted lessons are left out; DELETED lists only them.',
       example: 'COMPLETED',
     }),
     limit: z.coerce.number().int().min(1).max(100).default(20).meta({

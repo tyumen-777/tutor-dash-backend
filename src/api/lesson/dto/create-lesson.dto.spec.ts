@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { cancelLessonSchema } from './cancel-lesson.dto.js';
 import { createLessonSchema } from './create-lesson.dto.js';
+import { deleteLessonSchema } from './delete-lesson.dto.js';
 import { listLessonsQuerySchema } from './list-lessons-query.dto.js';
 import { updateLessonSchema } from './update-lesson.dto.js';
 
@@ -67,6 +68,22 @@ describe('updateLessonSchema', () => {
 describe('cancelLessonSchema', () => {
   it('drops an empty reason', () => {
     expect(cancelLessonSchema.parse({ reason: ' ' })).toEqual({});
+  });
+});
+
+describe('deleteLessonSchema', () => {
+  it('trims the reason', () => {
+    expect(deleteLessonSchema.parse({ reason: ' Внесено дважды ' })).toEqual({
+      reason: 'Внесено дважды',
+    });
+  });
+
+  it.each([
+    ['a missing reason', {}],
+    ['a blank reason', { reason: '   ' }],
+    ['a too short reason', { reason: 'ой' }],
+  ])('rejects %s', (_, body) => {
+    expect(deleteLessonSchema.safeParse(body).success).toBe(false);
   });
 });
 

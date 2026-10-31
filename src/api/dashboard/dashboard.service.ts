@@ -251,7 +251,11 @@ export class DashboardService {
     timezone: string,
   ) {
     const lessons = await this.prisma.lesson.findMany({
-      where: { organizationId, startsAt: this.dayRange(today, timezone) },
+      where: {
+        organizationId,
+        status: { not: LessonStatus.DELETED },
+        startsAt: this.dayRange(today, timezone),
+      },
       orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
       select: {
         id: true,

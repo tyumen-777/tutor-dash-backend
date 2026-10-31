@@ -16,6 +16,7 @@ import {
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { CancelLessonDto } from './dto/cancel-lesson.dto.js';
 import type { CreateLessonDto } from './dto/create-lesson.dto.js';
+import type { DeleteLessonDto } from './dto/delete-lesson.dto.js';
 import type { ListLessonsQueryDto } from './dto/list-lessons-query.dto.js';
 import type { UpdateLessonDto } from './dto/update-lesson.dto.js';
 import type {
@@ -38,6 +39,7 @@ const lessonInclude = {
     take: 1,
   },
   organization: { select: { currency: true } },
+  deletedBy: { select: { id: true, name: true } },
 } satisfies Prisma.LessonInclude;
 
 type LessonWithRelations = Prisma.LessonGetPayload<{
@@ -80,11 +82,14 @@ export class LessonsService {
       where.participants = { some: { studentId: query.studentId } };
     }
 
-    if (query.status) {
-      where.status = query.status;
-    }
+    // Удалённые занятия показываются только по отдельному запросу
+    const deletedWhere: Prisma.LessonWhereInput = {
+      ...where,
+      status: LessonStatus.DELETED,
+    };
+    where.status = query.status ?? { not: LessonStatus.DELETED };
 
-    const [lessons, total, completedSummary, canceledCount] =
+    const [lessons, total, completedSummary, canceledCount, deletedCount] =
       await this.prisma.$transaction([
         this.prisma.lesson.findMany({
           where,
@@ -106,6 +111,7 @@ export class LessonsService {
         this.prisma.lesson.count({
           where: { AND: [where, { status: LessonStatus.CANCELED }] },
         }),
+        this.prisma.lesson.count({ where: deletedWhere }),
       ]);
 
     return {
@@ -119,6 +125,7 @@ export class LessonsService {
           completedSummary._sum.teacherPay ?? new Prisma.Decimal(0)
         ).toFixed(2),
         canceledCount,
+        deletedCount,
       },
     };
   }
@@ -344,41 +351,13 @@ export class LessonsService {
         throw new ConflictException('Only held lessons can be canceled');
       }
 
-      // Возвращаем занятие в те пакеты, из которых оно было списано
-      const usages = await tx.subscriptionUsage.findMany({
-        where: { lessonId: id, type: SubscriptionUsageType.LESSON },
-        select: { subscriptionId: true, studentId: true },
-      });
-
-      for (const usage of usages) {
-        const { count: restored } = await tx.studentSubscription.updateMany({
-          where: {
-            id: usage.subscriptionId,
-            status: { not: SubscriptionStatus.CANCELED },
-          },
-          data: {
-            lessonsLeft: { increment: 1 },
-            status: SubscriptionStatus.ACTIVE,
-          },
-        });
-
-        if (restored === 0) {
-          continue;
-        }
-
-        // lessonId не указываем: пара (lessonId, studentId) уже занята списанием
-        await tx.subscriptionUsage.create({
-          data: {
-            organizationId,
-            subscriptionId: usage.subscriptionId,
-            studentId: usage.studentId,
-            type: SubscriptionUsageType.ADJUSTMENT,
-            lessonsDelta: 1,
-            comment: `Отмена занятия ${id}`,
-            createdByUserId: session.user.id,
-          },
-        });
-      }
+      await this.restoreDeductedLessons(
+        tx,
+        organizationId,
+        id,
+        session.user.id,
+        `Отмена занятия ${id}`,
+      );
 
       return tx.lesson.findUniqueOrThrow({
         where: { id },
@@ -387,6 +366,107 @@ export class LessonsService {
     });
 
     return this.toLessonResponse(canceled);
+  }
+
+  async deleteLesson(
+    session: OrganizationSession,
+    id: string,
+    dto: DeleteLessonDto,
+  ): Promise<LessonResponseDto> {
+    const organizationId = this.getOrganizationId(session);
+    const lesson = await this.findLesson(organizationId, id);
+
+    // У отменённого занятия списание уже возвращено, у проведённого — возвращаем
+    if (
+      lesson.status !== LessonStatus.COMPLETED &&
+      lesson.status !== LessonStatus.CANCELED
+    ) {
+      throw new ConflictException(
+        'Only held or canceled lessons can be deleted',
+      );
+    }
+
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      // Условие на прежний статус защищает от параллельной отмены или удаления
+      const { count } = await tx.lesson.updateMany({
+        where: { id, organizationId, status: lesson.status },
+        data: {
+          status: LessonStatus.DELETED,
+          deleteReason: dto.reason,
+          deletedAt: new Date(),
+          deletedByUserId: session.user.id,
+        },
+      });
+
+      if (count === 0) {
+        throw new ConflictException(
+          'Only held or canceled lessons can be deleted',
+        );
+      }
+
+      if (lesson.status === LessonStatus.COMPLETED) {
+        await this.restoreDeductedLessons(
+          tx,
+          organizationId,
+          id,
+          session.user.id,
+          `Удаление занятия ${id}: ${dto.reason}`,
+        );
+      }
+
+      return tx.lesson.findUniqueOrThrow({
+        where: { id },
+        include: lessonInclude,
+      });
+    });
+
+    return this.toLessonResponse(deleted);
+  }
+
+  /**
+   * Возвращает занятие в те пакеты, из которых оно было списано.
+   */
+  private async restoreDeductedLessons(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    lessonId: string,
+    userId: string,
+    comment: string,
+  ): Promise<void> {
+    const usages = await tx.subscriptionUsage.findMany({
+      where: { lessonId, type: SubscriptionUsageType.LESSON },
+      select: { subscriptionId: true, studentId: true },
+    });
+
+    for (const usage of usages) {
+      const { count: restored } = await tx.studentSubscription.updateMany({
+        where: {
+          id: usage.subscriptionId,
+          status: { not: SubscriptionStatus.CANCELED },
+        },
+        data: {
+          lessonsLeft: { increment: 1 },
+          status: SubscriptionStatus.ACTIVE,
+        },
+      });
+
+      if (restored === 0) {
+        continue;
+      }
+
+      // lessonId не указываем: пара (lessonId, studentId) уже занята списанием
+      await tx.subscriptionUsage.create({
+        data: {
+          organizationId,
+          subscriptionId: usage.subscriptionId,
+          studentId: usage.studentId,
+          type: SubscriptionUsageType.ADJUSTMENT,
+          lessonsDelta: 1,
+          comment,
+          createdByUserId: userId,
+        },
+      });
+    }
   }
 
   /**
@@ -518,6 +598,9 @@ export class LessonsService {
       topic: lesson.topic,
       homework: lesson.homework,
       cancelReason: lesson.cancelReason,
+      deleteReason: lesson.deleteReason,
+      deletedAt: lesson.deletedAt?.toISOString() ?? null,
+      deletedBy: lesson.deletedBy,
       createdAt: lesson.createdAt.toISOString(),
     };
   }

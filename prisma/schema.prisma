@@ -34,6 +34,7 @@ model user {
   studentProfiles Student[]
   createdPayments Payment[]
   createdExpenses Expense[]
+  deletedLessons  Lesson[]
 }
 
 model session {
@@ -216,6 +217,7 @@ enum LessonStatus {
   COMPLETED
   CANCELED // отменено без переноса, не списывается
   RESCHEDULED // перенесено (заранее предупредили), не списывается
+  DELETED // внесено по ошибке и удалено; не учитывается нигде, видно только в списке удалённых
 }
 
 enum AttendanceStatus {
@@ -532,10 +534,15 @@ model Lesson {
   // Сумма к выплате преподавателю за занятие (ставка × длительность)
   teacherPay        Decimal?     @db.Decimal(12, 2)
   completedAt       DateTime?    @db.Timestamptz
+  // Удаление ошибочно внесённого занятия: кто, когда и почему
+  deleteReason      String?
+  deletedAt         DateTime?    @db.Timestamptz
+  deletedByUserId   String?
   createdAt         DateTime     @default(now()) @db.Timestamptz
   updatedAt         DateTime     @updatedAt @db.Timestamptz
 
   organization    organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deletedBy       user?               @relation(fields: [deletedByUserId], references: [id], onDelete: SetNull)
   teacher         Teacher             @relation(fields: [teacherId], references: [id], onDelete: Restrict)
   scheduleRule    ScheduleRule?       @relation(fields: [scheduleRuleId], references: [id], onDelete: SetNull)
   rescheduledFrom Lesson?             @relation("LessonReschedule", fields: [rescheduledFromId], references: [id], onDelete: SetNull)

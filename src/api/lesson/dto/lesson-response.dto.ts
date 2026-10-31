@@ -88,8 +88,35 @@ export const lessonResponseSchema = z
       .nullable()
       .meta({
         description: 'Why the lesson was canceled.',
-        examples: ['Добавлено по ошибке'],
+        examples: ['Ученик заболел'],
       }),
+    deleteReason: z
+      .string()
+      .nullable()
+      .meta({
+        description: 'Why the lesson was deleted.',
+        examples: ['Внесено дважды'],
+      }),
+    deletedAt: z.iso
+      .datetime()
+      .nullable()
+      .meta({
+        description: 'When the lesson was deleted, in ISO 8601 format.',
+        examples: ['2026-10-31T12:00:00.000Z'],
+      }),
+    deletedBy: z
+      .object({
+        id: z.string().meta({
+          description: 'User ID.',
+          examples: ['u_123'],
+        }),
+        name: z.string().meta({
+          description: 'User name.',
+          examples: ['Артём'],
+        }),
+      })
+      .nullable()
+      .meta({ description: 'Who deleted the lesson.' }),
     createdAt: z.iso.datetime().meta({
       description: 'Creation date in ISO 8601 format.',
       examples: ['2026-10-24T16:05:00.000Z'],
@@ -140,6 +167,13 @@ export const lessonListResponseSchema = z
           .meta({
             description: 'Canceled lessons matching the filters.',
             examples: [2],
+          }),
+        deletedCount: z
+          .number()
+          .int()
+          .meta({
+            description: 'Deleted lessons matching the filters except status.',
+            examples: [1],
           }),
       })
       .meta({ description: 'Totals over all pages.' }),

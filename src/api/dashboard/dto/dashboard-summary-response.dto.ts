@@ -26,7 +26,7 @@ const dashboardLessonSchema = z.object({
   }),
   durationMin: count('Lesson duration in minutes.', 60),
   status: z
-    .enum(['SCHEDULED', 'COMPLETED', 'CANCELED', 'RESCHEDULED'])
+    .enum(['SCHEDULED', 'COMPLETED', 'CANCELED', 'RESCHEDULED', 'DELETED'])
     .meta({ description: 'Lesson status.', examples: ['COMPLETED'] }),
   topic: z.string().nullable().meta({ description: 'Lesson topic.' }),
   teacher: z.object({

@@ -32,6 +32,10 @@ import {
   type CreateLessonDto,
 } from './dto/create-lesson.dto.js';
 import {
+  deleteLessonSchema,
+  type DeleteLessonDto,
+} from './dto/delete-lesson.dto.js';
+import {
   lessonListResponseSchema,
   type LessonListResponseDto,
   lessonResponseSchema,
@@ -165,5 +169,27 @@ export class LessonsController {
     @Body({ schema: cancelLessonSchema }) body: CancelLessonDto,
   ): Promise<LessonResponseDto> {
     return this.lessonsService.cancelLesson(session, id, body);
+  }
+
+  @RequireActiveOrg()
+  @OrgRoles(['owner', 'admin'])
+  @Post(':id/delete')
+  @ApiOperation({
+    summary: 'Удаление занятия',
+    description:
+      'Удаляет занятие, внесённое по ошибке: статус «Удалено», причина и автор сохраняются. У проведённого занятия списание возвращается ученику в пакет, а начисление преподавателю больше не учитывается. Удалённые занятия не попадают в список и итоги без фильтра status=DELETED.',
+  })
+  @ApiOkResponse({
+    description: 'Занятие удалено.',
+    standardSchema: lessonResponseSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Занятие не найдено.' })
+  @ApiConflictResponse({ description: 'Занятие уже удалено.' })
+  deleteLesson(
+    @Session() session: UserSession,
+    @Param('id', { schema: z.uuid() }) id: string,
+    @Body({ schema: deleteLessonSchema }) body: DeleteLessonDto,
+  ): Promise<LessonResponseDto> {
+    return this.lessonsService.deleteLesson(session, id, body);
   }
 }
