@@ -1,56 +1,62 @@
 import { z } from 'zod';
 
+const isBlank = (value: unknown) =>
+  typeof value === 'string' && value.trim() === '';
+
 const optionalText = <T extends z.ZodType>(schema: T) =>
   z.preprocess(
-    (value) =>
-      typeof value === 'string' && value.trim() === '' ? undefined : value,
+    (value) => (isBlank(value) ? undefined : value),
     schema.optional(),
   );
 
-export const createTeacherSchema = z
-  .object({
-    fullName: z.string().trim().min(1).max(200).meta({
-      description: 'Full name of the teacher.',
-      example: 'Иванова Мария Петровна',
+export const clearableText = <T extends z.ZodType>(schema: T) =>
+  z.preprocess(
+    (value) => (isBlank(value) ? null : value),
+    schema.nullable().optional(),
+  );
+
+export const teacherFullNameSchema = z.string().trim().min(1).max(200).meta({
+  description: 'Full name of the teacher.',
+  example: 'Иванова Мария Петровна',
+});
+
+export const teacherEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(
+    z.email().meta({
+      description: 'Teacher email address.',
+      example: 'teacher@example.com',
     }),
-    email: optionalText(
-      z
-        .string()
-        .trim()
-        .toLowerCase()
-        .pipe(
-          z.email().meta({
-            description: 'Teacher email address.',
-            example: 'teacher@example.com',
-          }),
-        ),
-    ),
-    phone: optionalText(
-      z
-        .string()
-        .trim()
-        .regex(/^\+?[\d\s()-]{5,20}$/)
-        .meta({
-          description: 'Teacher phone number.',
-          example: '+7 912 345-67-89',
-        }),
-    ),
-    telegram: optionalText(
-      z
-        .string()
-        .trim()
-        .transform((value) =>
-          value.replace(/^(?:https?:\/\/)?(?:t\.me\/|@)/i, ''),
-        )
-        .pipe(z.string().regex(/^[a-zA-Z0-9_]{5,32}$/))
-        .meta({
-          description:
-            'Telegram username. Accepts "username", "@username" or "t.me/username"; stored without "@".',
-          example: '@maria_teacher',
-        }),
-    ),
-    hourlyRate: z.coerce
-      .number()
+  );
+
+export const teacherPhoneSchema = z
+  .string()
+  .trim()
+  .regex(/^\+?[\d\s()-]{5,20}$/)
+  .meta({
+    description: 'Teacher phone number.',
+    example: '+7 912 345-67-89',
+  });
+
+export const teacherTelegramSchema = z
+  .string()
+  .trim()
+  .transform((value) => value.replace(/^(?:https?:\/\/)?(?:t\.me\/|@)/i, ''))
+  .pipe(z.string().regex(/^[a-zA-Z0-9_]{5,32}$/))
+  .meta({
+    description:
+      'Telegram username. Accepts "username", "@username" or "t.me/username"; stored without "@".',
+    example: '@maria_teacher',
+  });
+
+// Без явной проверки входа coerce превращает null и пустую строку в 0
+export const teacherHourlyRateSchema = z
+  .union([z.number(), z.string().trim().min(1)])
+  .pipe(
+    z.coerce
+      .number<string | number>()
       .nonnegative()
       .max(9_999_999_999.99)
       .multipleOf(0.01)
@@ -58,10 +64,21 @@ export const createTeacherSchema = z
         description: 'Hourly rate in the organization currency.',
         example: 1500,
       }),
-    startedOn: z.iso.date().meta({
-      description: 'Employment start date (YYYY-MM-DD).',
-      example: '2026-10-01',
-    }),
+  );
+
+export const teacherStartedOnSchema = z.iso.date().meta({
+  description: 'Employment start date (YYYY-MM-DD).',
+  example: '2026-10-01',
+});
+
+export const createTeacherSchema = z
+  .object({
+    fullName: teacherFullNameSchema,
+    email: optionalText(teacherEmailSchema),
+    phone: optionalText(teacherPhoneSchema),
+    telegram: optionalText(teacherTelegramSchema),
+    hourlyRate: teacherHourlyRateSchema,
+    startedOn: teacherStartedOnSchema,
   })
   .strict()
   .meta({

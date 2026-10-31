@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -44,6 +45,10 @@ import {
   teacherResponseSchema,
   type TeacherResponseDto,
 } from './dto/teacher-response.dto.js';
+import {
+  updateTeacherSchema,
+  type UpdateTeacherDto,
+} from './dto/update-teacher.dto.js';
 import { TeachersService } from './teachers.service.js';
 
 @Controller('teachers')
@@ -108,6 +113,31 @@ export class TeachersController {
     @Body({ schema: createTeacherSchema }) body: CreateTeacherDto,
   ): Promise<TeacherResponseDto> {
     return this.teachersService.createTeacher(session, body);
+  }
+
+  @RequireActiveOrg()
+  @OrgRoles(['owner', 'admin'])
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Изменение учителя',
+    description:
+      'Меняет ФИО, контакты, ставку в час и дату начала работы. Новая ставка применяется к занятиям, созданным после изменения. Пустая строка или null очищает контакт.',
+  })
+  @ApiOkResponse({
+    description: 'Учитель изменён.',
+    standardSchema: teacherResponseSchema,
+  })
+  @ApiBadRequestResponse({
+    description: 'Дата начала работы позже даты увольнения.',
+  })
+  @ApiNotFoundResponse({ description: 'Учитель не найден.' })
+  @ApiConflictResponse({ description: 'Учитель с такой почтой уже есть.' })
+  updateTeacher(
+    @Session() session: UserSession,
+    @Param('id', { schema: z.uuid() }) id: string,
+    @Body({ schema: updateTeacherSchema }) body: UpdateTeacherDto,
+  ): Promise<TeacherResponseDto> {
+    return this.teachersService.updateTeacher(session, id, body);
   }
 
   @RequireActiveOrg()

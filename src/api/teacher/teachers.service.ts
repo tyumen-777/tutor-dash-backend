@@ -11,6 +11,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { ArchiveTeacherDto } from './dto/archive-teacher.dto.js';
 import type { CreateTeacherDto } from './dto/create-teacher.dto.js';
 import type { ListTeachersQueryDto } from './dto/list-teachers-query.dto.js';
+import type { UpdateTeacherDto } from './dto/update-teacher.dto.js';
 import type {
   TeacherListResponseDto,
   TeacherResponseDto,
@@ -254,6 +255,60 @@ export class TeachersService {
     });
 
     return this.toTeacherResponse(teacher);
+  }
+
+  async updateTeacher(
+    session: OrganizationSession,
+    id: string,
+    dto: UpdateTeacherDto,
+  ): Promise<TeacherResponseDto> {
+    const organizationId = this.getOrganizationId(session);
+    const teacher = await this.findTeacher(organizationId, id);
+    const startedOn = dto.startedOn ? this.parseDate(dto.startedOn) : undefined;
+
+    if (startedOn && teacher.endedOn && startedOn > teacher.endedOn) {
+      throw new BadRequestException('startedOn cannot be later than endedOn');
+    }
+
+    // Почта уникальна среди всех учителей, иначе восстановление из архива сломается
+    if (dto.email && dto.email !== teacher.email) {
+      const duplicate = await this.prisma.teacher.findFirst({
+        where: { organizationId, email: dto.email, id: { not: id } },
+        select: { id: true },
+      });
+
+      if (duplicate) {
+        throw new ConflictException(
+          'Teacher with this email already exists in the organization',
+        );
+      }
+    }
+
+    try {
+      const updated = await this.prisma.teacher.update({
+        where: { id },
+        data: {
+          fullName: dto.fullName,
+          email: dto.email,
+          phone: dto.phone,
+          telegram: dto.telegram,
+          // Ставка уже созданных занятий зафиксирована в Lesson.teacherRate
+          hourlyRate: dto.hourlyRate?.toFixed(2),
+          startedOn,
+        },
+      });
+
+      return this.toTeacherResponse(updated);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException('Teacher not found');
+      }
+
+      throw error;
+    }
   }
 
   private async findTeacher<
