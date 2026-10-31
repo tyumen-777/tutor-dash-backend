@@ -464,7 +464,7 @@ model Expense {
   amount          Decimal         @db.Decimal(12, 2)
   currency        String          @db.Char(3)
   category        ExpenseCategory
-  recipient       String
+  recipient       String?
   method          PaymentMethod
   status          ExpenseStatus   @default(PAID)
   description     String

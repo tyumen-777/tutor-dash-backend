@@ -16,7 +16,14 @@ export const updateExpenseSchema = z
     spentOn: expenseSpentOnSchema.optional(),
     amount: expenseAmountSchema.optional(),
     category: expenseCategorySchema.optional(),
-    recipient: expenseRecipientSchema.optional(),
+    // Пустая строка очищает получателя
+    recipient: z
+      .union([expenseRecipientSchema, z.literal('')])
+      .optional()
+      .meta({
+        description: 'Who received the money; an empty string clears it.',
+        example: 'ООО «БизнесЦентр Плюс»',
+      }),
     method: paymentMethodSchema.optional(),
     status: expenseEditableStatusSchema.optional(),
     description: expenseDescriptionSchema.optional(),

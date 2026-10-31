@@ -150,7 +150,7 @@ export class ExpensesService {
         amount: dto.amount.toFixed(2),
         currency: organization.currency,
         category: dto.category,
-        recipient: dto.recipient,
+        recipient: dto.recipient ?? null,
         method: dto.method,
         status: dto.status,
         description: dto.description,
@@ -208,7 +208,8 @@ export class ExpensesService {
         spentOn: dto.spentOn ? this.parseDate(dto.spentOn) : undefined,
         amount: dto.amount?.toFixed(2),
         category: dto.category,
-        recipient: dto.recipient,
+        recipient:
+          dto.recipient === undefined ? undefined : dto.recipient || null,
         method: dto.method,
         status: dto.status,
         description: dto.description,

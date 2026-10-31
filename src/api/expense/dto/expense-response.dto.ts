@@ -24,7 +24,7 @@ export const expenseResponseSchema = z
       description: 'Expense category.',
       examples: ['RENT'],
     }),
-    recipient: z.string().meta({
+    recipient: z.string().nullable().meta({
       description: 'Who received the money.',
       examples: ['ООО «БизнесЦентр Плюс»'],
     }),

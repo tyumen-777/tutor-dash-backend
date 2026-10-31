@@ -70,7 +70,7 @@ export const createExpenseSchema = z
     spentOn: expenseSpentOnSchema,
     amount: expenseAmountSchema,
     category: expenseCategorySchema,
-    recipient: expenseRecipientSchema,
+    recipient: optionalText(expenseRecipientSchema),
     method: paymentMethodSchema,
     status: expenseEditableStatusSchema.default('PAID'),
     description: expenseDescriptionSchema,
