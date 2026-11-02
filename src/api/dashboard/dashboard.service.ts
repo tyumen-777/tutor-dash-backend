@@ -27,7 +27,7 @@ const EXPENSE_ROLES = ['owner', 'admin', 'accountant'];
 
 const LOW_BALANCE_THRESHOLD = 1;
 const TEACHERS_LIMIT = 5;
-const LOW_BALANCE_LIMIT = 5;
+const LOW_BALANCE_LIMIT = 10;
 const NEW_STUDENTS_DAYS = 30;
 const MINUTE_MS = 60_000;
 
@@ -336,7 +336,10 @@ export class DashboardService {
     const [students, balances] = await this.prisma.$transaction([
       this.prisma.student.findMany({
         where: { organizationId, status: StudentStatus.ACTIVE },
-        select: studentRefSelect,
+        select: {
+          ...studentRefSelect,
+          teacher: { select: { id: true, fullName: true } },
+        },
       }),
       this.prisma.studentSubscription.groupBy({
         by: ['studentId'],
@@ -365,10 +368,51 @@ export class DashboardService {
           a.lessonsLeft - b.lessonsLeft ||
           a.firstName.localeCompare(b.firstName, 'ru'),
       );
+    const top = lowBalance.slice(0, LOW_BALANCE_LIMIT);
+    const studentIds = top.map((student) => student.id);
+
+    const [lastPayments, lastLessons] = await Promise.all([
+      this.prisma.payment.groupBy({
+        by: ['studentId'],
+        where: {
+          organizationId,
+          studentId: { in: studentIds },
+          status: PaymentStatus.COMPLETED,
+        },
+        _max: { paidAt: true },
+      }),
+      // По одному запросу на ученика: их не больше LOW_BALANCE_LIMIT,
+      // а distinct в Prisma выбрал бы все занятия и отфильтровал в памяти
+      Promise.all(
+        studentIds.map((studentId) =>
+          this.prisma.lesson.findFirst({
+            where: {
+              organizationId,
+              status: LessonStatus.COMPLETED,
+              participants: { some: { studentId } },
+            },
+            orderBy: { startsAt: 'desc' },
+            select: { startsAt: true },
+          }),
+        ),
+      ),
+    ]);
+    const lastPaidAtByStudent = new Map(
+      lastPayments.map((payment) => [payment.studentId, payment._max.paidAt]),
+    );
 
     return {
       count: lowBalance.length,
-      items: lowBalance.slice(0, LOW_BALANCE_LIMIT),
+      items: top.map((student, index) => {
+        const lastPaidAt = lastPaidAtByStudent.get(student.id);
+
+        return {
+          ...student,
+          // Оплата хранится как полдень UTC, поэтому дата берётся из UTC
+          lastPaidOn: lastPaidAt ? lastPaidAt.toISOString().slice(0, 10) : null,
+          lastLessonAt: lastLessons[index]?.startsAt.toISOString() ?? null,
+        };
+      }),
     };
   }
 

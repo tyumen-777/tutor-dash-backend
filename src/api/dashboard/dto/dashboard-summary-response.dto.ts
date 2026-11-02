@@ -48,6 +48,27 @@ const teacherWorkloadSchema = z.object({
 
 const lowBalanceStudentSchema = studentRefSchema.extend({
   lessonsLeft: count('Paid lessons left.', 1),
+  lastPaidOn: z.iso
+    .date()
+    .nullable()
+    .meta({
+      description: 'Date of the last completed payment (YYYY-MM-DD).',
+      examples: ['2026-10-02'],
+    }),
+  lastLessonAt: z.iso
+    .datetime()
+    .nullable()
+    .meta({
+      description: 'Start of the last completed lesson in ISO 8601 format.',
+      examples: ['2026-10-29T15:00:00.000Z'],
+    }),
+  teacher: z
+    .object({
+      id: z.uuid().meta({ description: 'Teacher ID.' }),
+      fullName: z.string().meta({ description: 'Full name of the teacher.' }),
+    })
+    .nullable()
+    .meta({ description: 'Main teacher of the student.' }),
 });
 
 export const dashboardSummaryResponseSchema = z
@@ -119,7 +140,7 @@ export const dashboardSummaryResponseSchema = z
       description: 'Active teachers by completed lessons this month.',
     }),
     lowBalanceStudents: z.array(lowBalanceStudentSchema).meta({
-      description: 'Up to 5 active students with the fewest lessons left.',
+      description: 'Up to 10 active students with the fewest lessons left.',
     }),
   })
   .meta({
