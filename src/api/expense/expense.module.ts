@@ -8,5 +8,6 @@ import { ExpensesService } from './expenses.service.js';
   imports: [InfraModule],
   controllers: [ExpensesController],
   providers: [ExpensesService],
+  exports: [ExpensesService],
 })
 export class ExpenseModule {}

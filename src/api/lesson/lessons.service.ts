@@ -82,6 +82,10 @@ export class LessonsService {
       where.participants = { some: { studentId: query.studentId } };
     }
 
+    if (query.paidOut !== undefined) {
+      where.payoutExpenseId = query.paidOut ? { not: null } : null;
+    }
+
     // Удалённые занятия показываются только по отдельному запросу
     const deletedWhere: Prisma.LessonWhereInput = {
       ...where,
@@ -269,6 +273,17 @@ export class LessonsService {
 
     const teacherChanged =
       dto.teacherId !== undefined && dto.teacherId !== lesson.teacherId;
+    // У выплаченного занятия можно править только тему и домашнее задание
+    const changesPay =
+      teacherChanged ||
+      !lesson.teacherRate ||
+      startsAt.getTime() !== lesson.startsAt.getTime() ||
+      startsAt.getTime() + durationMin * MINUTE_MS !== lesson.endsAt.getTime();
+
+    if (changesPay && lesson.payoutExpenseId) {
+      throw this.paidOutException();
+    }
+
     // Ставка зафиксирована при внесении; новая берётся только при смене преподавателя
     let teacherRate = lesson.teacherRate;
 
@@ -293,9 +308,14 @@ export class LessonsService {
 
     try {
       updated = await this.prisma.$transaction(async (tx) => {
-        // Условие на статус защищает от параллельной отмены
+        // Условия защищают от параллельной отмены и выплаты
         const { count } = await tx.lesson.updateMany({
-          where: { id, organizationId, status: LessonStatus.COMPLETED },
+          where: {
+            id,
+            organizationId,
+            status: LessonStatus.COMPLETED,
+            payoutExpenseId: changesPay ? null : undefined,
+          },
           data: {
             teacherId: dto.teacherId,
             startsAt,
@@ -309,7 +329,9 @@ export class LessonsService {
         });
 
         if (count === 0) {
-          throw new ConflictException('Only held lessons can be edited');
+          throw new ConflictException(
+            'Only held lessons not included in a payout can be edited',
+          );
         }
 
         return tx.lesson.findUniqueOrThrow({
@@ -336,11 +358,21 @@ export class LessonsService {
     dto: CancelLessonDto,
   ): Promise<LessonResponseDto> {
     const organizationId = this.getOrganizationId(session);
-    await this.findLesson(organizationId, id);
+    const lesson = await this.findLesson(organizationId, id);
+
+    if (lesson.payoutExpenseId) {
+      throw this.paidOutException();
+    }
 
     const canceled = await this.prisma.$transaction(async (tx) => {
+      // Условие payoutExpenseId: null защищает от параллельной выплаты
       const { count } = await tx.lesson.updateMany({
-        where: { id, organizationId, status: LessonStatus.COMPLETED },
+        where: {
+          id,
+          organizationId,
+          status: LessonStatus.COMPLETED,
+          payoutExpenseId: null,
+        },
         data: {
           status: LessonStatus.CANCELED,
           cancelReason: dto.reason ?? null,
@@ -348,7 +380,9 @@ export class LessonsService {
       });
 
       if (count === 0) {
-        throw new ConflictException('Only held lessons can be canceled');
+        throw new ConflictException(
+          'Only held lessons not included in a payout can be canceled',
+        );
       }
 
       await this.restoreDeductedLessons(
@@ -386,10 +420,19 @@ export class LessonsService {
       );
     }
 
+    if (lesson.payoutExpenseId) {
+      throw this.paidOutException();
+    }
+
     const deleted = await this.prisma.$transaction(async (tx) => {
-      // Условие на прежний статус защищает от параллельной отмены или удаления
+      // Условия защищают от параллельной отмены, удаления или выплаты
       const { count } = await tx.lesson.updateMany({
-        where: { id, organizationId, status: lesson.status },
+        where: {
+          id,
+          organizationId,
+          status: lesson.status,
+          payoutExpenseId: null,
+        },
         data: {
           status: LessonStatus.DELETED,
           deleteReason: dto.reason,
@@ -536,6 +579,12 @@ export class LessonsService {
     );
   }
 
+  private paidOutException(): ConflictException {
+    return new ConflictException(
+      'Lesson is included in a teacher payout; cancel the payout first',
+    );
+  }
+
   private noLessonsLeftException(): ConflictException {
     return new ConflictException('Student has no paid lessons left');
   }
@@ -594,6 +643,7 @@ export class LessonsService {
       teacher: lesson.teacher,
       teacherRate: lesson.teacherRate?.toFixed(2) ?? null,
       teacherPay: lesson.teacherPay?.toFixed(2) ?? null,
+      payoutExpenseId: lesson.payoutExpenseId,
       currency: lesson.organization.currency,
       topic: lesson.topic,
       homework: lesson.homework,

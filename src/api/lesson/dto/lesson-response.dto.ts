@@ -71,6 +71,10 @@ export const lessonResponseSchema = z
           'Amount credited to the teacher for the lesson, as a decimal string.',
         examples: ['790.00'],
       }),
+    payoutExpenseId: z.uuid().nullable().meta({
+      description:
+        'Teacher payout (SALARY expense) that paid for the lesson; null while unpaid.',
+    }),
     currency: z.string().meta({
       description: 'ISO 4217 currency code of the organization.',
       examples: ['RUB'],

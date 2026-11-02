@@ -31,6 +31,15 @@ export const listLessonsQuerySchema = z
         'Filter by lesson status. Without it deleted lessons are left out; DELETED lists only them.',
       example: 'COMPLETED',
     }),
+    paidOut: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional()
+      .meta({
+        description:
+          'true — only lessons included in a teacher payout, false — only lessons not paid out yet.',
+        example: 'false',
+      }),
     limit: z.coerce.number().int().min(1).max(100).default(20).meta({
       description: 'Page size.',
       example: 20,

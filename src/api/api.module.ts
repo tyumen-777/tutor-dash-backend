@@ -7,6 +7,7 @@ import { HealthModule } from './health/health.module.js';
 import { LessonModule } from './lesson/lesson.module.js';
 import { OrganizationModule } from './organization/organization.module.js';
 import { PaymentModule } from './payment/payment.module.js';
+import { PayoutModule } from './payout/payout.module.js';
 import { StudentModule } from './student/student.module.js';
 import { StudyLevelModule } from './study-level/study-level.module.js';
 import { TeacherModule } from './teacher/teacher.module.js';
@@ -21,6 +22,7 @@ import { TeacherModule } from './teacher/teacher.module.js';
     StudyLevelModule,
     PaymentModule,
     ExpenseModule,
+    PayoutModule,
     LessonModule,
     DashboardModule,
     HealthModule,

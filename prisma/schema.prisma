@@ -477,9 +477,11 @@ model Expense {
   createdAt       DateTime        @default(now()) @db.Timestamptz
   updatedAt       DateTime        @updatedAt @db.Timestamptz
 
-  organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  teacher      Teacher?     @relation(fields: [teacherId], references: [id], onDelete: SetNull)
-  createdBy    user         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  organization  organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teacher       Teacher?     @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  createdBy     user         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  // Занятия, оплаченные этой выплатой преподавателю
+  payoutLessons Lesson[]
 
   @@index([organizationId, spentOn])
   @@index([teacherId])
@@ -538,11 +540,14 @@ model Lesson {
   deleteReason      String?
   deletedAt         DateTime?    @db.Timestamptz
   deletedByUserId   String?
+  // Выплата преподавателю (расход SALARY), в которую вошло занятие
+  payoutExpenseId   String?      @db.Uuid
   createdAt         DateTime     @default(now()) @db.Timestamptz
   updatedAt         DateTime     @updatedAt @db.Timestamptz
 
   organization    organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   deletedBy       user?               @relation(fields: [deletedByUserId], references: [id], onDelete: SetNull)
+  payoutExpense   Expense?            @relation(fields: [payoutExpenseId], references: [id], onDelete: SetNull)
   teacher         Teacher             @relation(fields: [teacherId], references: [id], onDelete: Restrict)
   scheduleRule    ScheduleRule?       @relation(fields: [scheduleRuleId], references: [id], onDelete: SetNull)
   rescheduledFrom Lesson?             @relation("LessonReschedule", fields: [rescheduledFromId], references: [id], onDelete: SetNull)
@@ -553,6 +558,8 @@ model Lesson {
   @@index([organizationId, startsAt])
   @@index([teacherId, startsAt])
   @@index([scheduleRuleId, startsAt])
+  @@index([teacherId, payoutExpenseId])
+  @@index([payoutExpenseId])
   @@map("lessons")
 }
 

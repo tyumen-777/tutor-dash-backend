@@ -27,6 +27,7 @@ type OrganizationSession = {
 const expenseInclude = {
   teacher: { select: { id: true, fullName: true } },
   createdBy: { select: { id: true, name: true } },
+  _count: { select: { payoutLessons: true } },
 } satisfies Prisma.ExpenseInclude;
 
 type ExpenseWithRelations = Prisma.ExpenseGetPayload<{
@@ -176,6 +177,14 @@ export class ExpensesService {
       throw new ConflictException('Canceled expenses cannot be edited');
     }
 
+    // Сумма выплаты равна начислениям за её занятия, поэтому меняются
+    // только дата, способ, описание и комментарий
+    if (expense._count.payoutLessons > 0 && this.changesPayout(expense, dto)) {
+      throw new ConflictException(
+        'Payout amount, category, teacher and status cannot be edited; cancel the payout instead',
+      );
+    }
+
     if (dto.spentOn) {
       const organization = await this.prisma.organization.findUniqueOrThrow({
         where: { id: organizationId },
@@ -232,14 +241,22 @@ export class ExpensesService {
     const organizationId = this.getOrganizationId(session);
     await this.findExpense(organizationId, id);
 
-    const { count } = await this.prisma.expense.updateMany({
-      where: { id, organizationId, status: { not: ExpenseStatus.CANCELED } },
-      data: { status: ExpenseStatus.CANCELED },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.expense.updateMany({
+        where: { id, organizationId, status: { not: ExpenseStatus.CANCELED } },
+        data: { status: ExpenseStatus.CANCELED },
+      });
 
-    if (count === 0) {
-      throw new ConflictException('Expense is already canceled');
-    }
+      if (count === 0) {
+        throw new ConflictException('Expense is already canceled');
+      }
+
+      // Занятия отменённой выплаты снова ждут оплаты
+      await tx.lesson.updateMany({
+        where: { organizationId, payoutExpenseId: id },
+        data: { payoutExpenseId: null },
+      });
+    });
 
     return this.toExpenseResponse(await this.findExpense(organizationId, id));
   }
@@ -258,6 +275,19 @@ export class ExpensesService {
     }
 
     return expense;
+  }
+
+  private changesPayout(
+    expense: ExpenseWithRelations,
+    dto: UpdateExpenseDto,
+  ): boolean {
+    return (
+      (dto.amount !== undefined && !expense.amount.equals(dto.amount)) ||
+      (dto.category !== undefined && dto.category !== expense.category) ||
+      (dto.status !== undefined && dto.status !== expense.status) ||
+      (dto.teacherId !== undefined &&
+        dto.teacherId !== (expense.teacher?.id ?? null))
+    );
   }
 
   private async assertTeacher(
@@ -314,6 +344,7 @@ export class ExpensesService {
       description: expense.description,
       comment: expense.comment,
       teacher: expense.teacher,
+      payoutLessonsCount: expense._count.payoutLessons,
       createdBy: expense.createdBy,
       createdAt: expense.createdAt.toISOString(),
     };

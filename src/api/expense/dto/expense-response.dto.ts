@@ -24,10 +24,13 @@ export const expenseResponseSchema = z
       description: 'Expense category.',
       examples: ['RENT'],
     }),
-    recipient: z.string().nullable().meta({
-      description: 'Who received the money.',
-      examples: ['ООО «БизнесЦентр Плюс»'],
-    }),
+    recipient: z
+      .string()
+      .nullable()
+      .meta({
+        description: 'Who received the money.',
+        examples: ['ООО «БизнесЦентр Плюс»'],
+      }),
     method: z.enum(['CASH', 'CARD', 'TRANSFER', 'OTHER']).meta({
       description: 'Payment method.',
       examples: ['TRANSFER'],
@@ -60,6 +63,14 @@ export const expenseResponseSchema = z
       })
       .nullable()
       .meta({ description: 'Teacher who received the salary.' }),
+    payoutLessonsCount: z
+      .number()
+      .int()
+      .meta({
+        description:
+          'Lessons paid by this teacher payout; 0 for other expenses.',
+        examples: [12],
+      }),
     createdBy: z
       .object({
         id: z.string().meta({
