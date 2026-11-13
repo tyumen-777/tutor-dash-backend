@@ -1,114 +1,183 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Tutor Dash — backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API для CRM школ иностранных языков. Отдаёт фронтенду данные об учениках,
+преподавателях, занятиях, оплатах, расходах, выплатах и сводке дашборда.
+Каждая школа — отдельная организация; данные изолированы по организации, а
+доступ ограничен ролью участника.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Стек
 
-## Description
+- [NestJS](https://nestjs.com/) 12 (Express), TypeScript, ESM
+- [PostgreSQL](https://www.postgresql.org/) 17 + [Prisma](https://www.prisma.io/) 7 (адаптер `@prisma/adapter-pg`)
+- [Better Auth](https://www.better-auth.com/) — сессии в cookie, плагин организаций и ролей
+- [Zod](https://zod.dev/) — валидация DTO и переменных окружения, OpenAPI через `zod-openapi`
+- Swagger UI (`@nestjs/swagger`), `helmet`, `@nestjs/throttler` (rate limit)
+- [Vitest](https://vitest.dev/) + Supertest для тестов, [oxlint](https://oxc.rs/) для линта
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Быстрый старт
 
-## Project setup
+Нужен Node.js **22.22.1+** (версия зафиксирована в `.nvmrc`, `start:dev`
+проверяет её перед запуском) и Docker для локального Postgres.
 
 ```bash
-$ npm install
+nvm use
+npm install
 ```
 
-## Compile and run the project
+1. Создайте `.env` в корне `backend/` (см. [переменные окружения](#переменные-окружения)).
+2. Поднимите базу:
+
+   ```bash
+   docker compose up -d postgres
+   ```
+
+3. Сгенерируйте Prisma Client и примените миграции:
+
+   ```bash
+   npm run prisma:generate
+   npm run migrate:deploy
+   ```
+
+4. Создайте SaaS-администратора (пользователь, который может заводить школы):
+
+   ```bash
+   npm run seed:saas-admin
+   ```
+
+5. Запустите сервер в watch-режиме:
+
+   ```bash
+   npm run start:dev
+   ```
+
+Фронтенд ожидает API на `http://localhost:4000`, поэтому локально задайте
+`HTTP_PORT=4000`. Swagger UI откроется на `http://localhost:4000/api`, JSON-схема —
+на `http://localhost:4000/openapi.json` (её использует Orval на фронте).
+
+## Переменные окружения
+
+Проверяются при старте схемой в `src/config/env.validation.ts` — при ошибке
+сервер не запустится и выведет список невалидных переменных.
+
+| Переменная | Обязательна | Описание |
+|---|---|---|
+| `DATABASE_URL` | да | Строка подключения к Postgres |
+| `BETTER_AUTH_SECRET` | да | Секрет для подписи сессий, минимум 32 символа |
+| `BETTER_AUTH_URL` | да | Публичный URL API (например, `http://localhost:4000`) |
+| `FRONTEND_ORIGIN` | да | URL фронтенда — разрешён в CORS с credentials |
+| `HTTP_PORT` | нет | Порт сервера, по умолчанию `3000` (локально — `4000`) |
+| `HTTP_HOST` | нет | Хост, по умолчанию `0.0.0.0` |
+| `NODE_ENV` | нет | `development` / `test` / `production` |
+| `COOKIE_DOMAIN` | нет | Общий домен для cookie сессии (например, `edudash.org`), чтобы её видели и API, и фронт на разных поддоменах |
+| `TRUSTED_PROXIES` | нет | IP/CIDR reverse proxy через запятую; только от них учитывается `X-Forwarded-For` |
+| `SWAGGER_ENABLED` | нет | `true`/`false`; по умолчанию Swagger выключен в production |
+
+Для `docker-compose.yml`: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DATABASE`.
+
+Для `seed:saas-admin`: `SAAS_ADMIN_BOOTSTRAP_EMAIL`, `SAAS_ADMIN_BOOTSTRAP_NAME`,
+`SAAS_ADMIN_BOOTSTRAP_PASSWORD` (8–128 символов). Скрипт идемпотентный: если
+пользователь уже есть, он обновляется.
+
+## Скрипты
+
+| Команда | Что делает |
+|---|---|
+| `npm run start:dev` | Запуск с перезагрузкой при изменениях |
+| `npm run start:debug` | То же с инспектором Node |
+| `npm run build` / `npm run start:prod` | Сборка в `dist/` и запуск собранной версии |
+| `npm run prisma:generate` | Генерация Prisma Client в `src/generated/prisma` |
+| `npm run migrate:deploy` | Применение миграций из `prisma/migrations` |
+| `npm run seed:saas-admin` | Создание/обновление SaaS-администратора |
+| `npm run lint` | oxlint по `src/` и `test/` |
+| `npm run format` | Prettier |
+| `npm test` | Unit-тесты (`*.spec.ts`) |
+| `npm run test:e2e` | E2E-тесты (`test/*.e2e-spec.ts`), нужна живая БД |
+| `npm run test:cov` | Покрытие |
+
+Новая миграция после изменения `prisma/schema.prisma`:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npx prisma migrate dev --config prisma7.config.ts --name <имя_миграции>
 ```
 
-## Run tests
+## Структура
 
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+```
+src/
+  main.ts              точка входа: helmet, CORS, валидация, Swagger
+  app.module.ts
+  config/              env-схема, Swagger, rate limit
+  infra/prisma/        PrismaService
+  generated/prisma/    сгенерированный Prisma Client (не редактировать)
+  scripts/             seed-saas-admin
+  api/
+    auth/              Better Auth (/api/auth/*), /auth/me, роли и права
+    organization/      настройки школы, участники, приглашения
+    admin/             управление школами для SaaS-администратора
+    student/           ученики, баланс занятий
+    teacher/           преподаватели, архив, доступ в кабинет
+    lesson/            занятия, списание с баланса, оплата урока
+    payment/           поступления
+    expense/           расходы
+    payout/            выплаты преподавателям
+    study-level/       уровни обучения школы
+    dashboard/         сводка для главной страницы
+    me/                кабинет преподавателя (/me/teacher, /me/earnings)
+    shared/            ограничение данных для роли teacher, часовые пояса
+    health/            /health для healthcheck
+prisma/
+  schema.prisma        схема БД
+  migrations/          миграции
+docs/                  проектные заметки (схема БД, контракты для фронта)
 ```
 
-## Deployment
+Каждый модуль устроен одинаково: `*.controller.ts` (маршруты), `*.service.ts`
+(логика и запросы к БД), `dto/` (Zod-схемы запросов и ответов, из них же
+строится OpenAPI). Чистая логика вынесена в отдельные файлы с тестами рядом
+(`lesson-pay.ts`, `payout-report.ts`, `teacher-scope.ts`, `school-date.ts`).
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Авторизация и роли
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Эндпоинты Better Auth доступны по `/api/auth/*`, сессия хранится в cookie.
+Пользователь состоит в одной или нескольких организациях; активная организация
+берётся из сессии.
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+Роли участника организации (`src/api/auth/auth.permissions.ts`):
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+| Роль | Ученики | Занятия | Финансы | Отчёты | Настройки |
+|---|---|---|---|---|---|
+| `owner`, `admin` | полный доступ | полный доступ | полный доступ | чтение | чтение и изменение |
+| `manager` | без удаления | без удаления | чтение | чтение | чтение |
+| `accountant` | чтение | чтение | полный доступ | чтение | — |
+| `teacher` | чтение | чтение и изменение | — | — | — |
 
-## Observability
+Участник только с ролью `teacher` дополнительно ограничен своими данными
+(`src/api/shared/teacher-scope.ts`): видит только своих учеников и занятия,
+в занятиях может менять лишь тему и домашнее задание. Чужие записи отдают
+`404`. Преподаватель получает доступ по приглашению, которое выдаётся из
+карточки преподавателя (`/teachers/:id/access`).
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+Флаг `isSaasAdmin` у пользователя открывает `/admin/organizations` —
+управление школами на уровне всей платформы.
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+## Данные
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+Основные сущности (`prisma/schema.prisma`): `Student`, `Teacher`, `Lesson` и
+`LessonParticipant`, `Payment`, `Expense`, `StudyLevel`, абонементы
+(`SubscriptionPlan`, `StudentSubscription`, `SubscriptionUsage`), опекуны
+(`Guardian`), расписание (`ScheduleRule`), плюс таблицы Better Auth (`user`,
+`session`, `organization`, `member`, `invitation`).
 
-## Resources
+Деньги хранятся в минимальных единицах (целые числа). Бизнес-записи по
+возможности не удаляются физически, а архивируются. Подробнее — в
+[docs/database-schema.md](docs/database-schema.md).
 
-Check out a few resources that may come in handy when working with NestJS:
+## Деплой
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+При пуше в `main` GitHub Actions (`.github/workflows/deploy.yml`) собирает
+Docker-образ, публикует его в GHCR (`ghcr.io/<owner>/tutor-backend`) и
+запускает деплой в Dokploy. Нужные секреты репозитория: `DOKPLOY_URL`,
+`DOKPLOY_API_KEY`, `DOKPLOY_BACKEND_APP_ID`.
 
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Контейнер при старте сам применяет миграции (`prisma migrate deploy`), затем
+запускает `node dist/main.js`. Healthcheck обращается к `/health`.
