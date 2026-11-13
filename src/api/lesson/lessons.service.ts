@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -14,6 +15,10 @@ import {
   SubscriptionUsageType,
 } from '../../generated/prisma/enums.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+import {
+  resolveTeacherScope,
+  type TeacherScope,
+} from '../shared/teacher-scope.js';
 import type { CancelLessonDto } from './dto/cancel-lesson.dto.js';
 import type { CreateLessonDto } from './dto/create-lesson.dto.js';
 import type { DeleteLessonDto } from './dto/delete-lesson.dto.js';
@@ -57,6 +62,7 @@ export class LessonsService {
     query: ListLessonsQueryDto,
   ): Promise<LessonListResponseDto> {
     const organizationId = this.getOrganizationId(session);
+    const scope = await this.getScope(organizationId, session);
     const where: Prisma.LessonWhereInput = { organizationId };
 
     if (query.from || query.to) {
@@ -74,7 +80,10 @@ export class LessonsService {
       };
     }
 
-    if (query.teacherId) {
+    // Преподаватель видит только свои занятия, какой бы фильтр ни прислал
+    if (scope) {
+      where.teacherId = scope.teacherId;
+    } else if (query.teacherId) {
       where.teacherId = query.teacherId;
     }
 
@@ -139,7 +148,8 @@ export class LessonsService {
     id: string,
   ): Promise<LessonResponseDto> {
     const organizationId = this.getOrganizationId(session);
-    const lesson = await this.findLesson(organizationId, id);
+    const scope = await this.getScope(organizationId, session);
+    const lesson = await this.findLesson(organizationId, id, scope);
 
     return this.toLessonResponse(lesson);
   }
@@ -149,7 +159,12 @@ export class LessonsService {
     dto: CreateLessonDto,
   ): Promise<LessonResponseDto> {
     const organizationId = this.getOrganizationId(session);
+    const scope = await this.getScope(organizationId, session);
     const startsAt = new Date(dto.startsAt);
+
+    if (scope && dto.teacherId !== scope.teacherId) {
+      throw new ForbiddenException('Teachers can register only own lessons');
+    }
 
     if (startsAt.getTime() > Date.now()) {
       throw new BadRequestException('startsAt cannot be in the future');
@@ -158,7 +173,7 @@ export class LessonsService {
     const [student, teacher] = await Promise.all([
       this.prisma.student.findFirst({
         where: { id: dto.studentId, organizationId },
-        select: { id: true, status: true },
+        select: { id: true, status: true, teacherId: true },
       }),
       this.prisma.teacher.findFirst({
         where: { id: dto.teacherId, organizationId },
@@ -172,6 +187,11 @@ export class LessonsService {
 
     if (student.status === StudentStatus.ARCHIVED) {
       throw new BadRequestException('Student is archived');
+    }
+
+    // Преподаватель вносит занятия только закреплённым за ним ученикам
+    if (scope && student.teacherId !== scope.teacherId) {
+      throw new ForbiddenException('Student is not assigned to this teacher');
     }
 
     if (!teacher) {
@@ -249,7 +269,8 @@ export class LessonsService {
     dto: UpdateLessonDto,
   ): Promise<LessonResponseDto> {
     const organizationId = this.getOrganizationId(session);
-    const lesson = await this.findLesson(organizationId, id);
+    const scope = await this.getScope(organizationId, session);
+    const lesson = await this.findLesson(organizationId, id, scope);
 
     if (lesson.status !== LessonStatus.COMPLETED) {
       throw new ConflictException('Only held lessons can be edited');
@@ -273,12 +294,18 @@ export class LessonsService {
 
     const teacherChanged =
       dto.teacherId !== undefined && dto.teacherId !== lesson.teacherId;
-    // У выплаченного занятия можно править только тему и домашнее задание
-    const changesPay =
-      teacherChanged ||
-      !lesson.teacherRate ||
+    const timeChanged =
       startsAt.getTime() !== lesson.startsAt.getTime() ||
       startsAt.getTime() + durationMin * MINUTE_MS !== lesson.endsAt.getTime();
+
+    // Время, длительность и преподавателя меняет только менеджер:
+    // от них зависят начисление и списание
+    if (scope && (teacherChanged || timeChanged)) {
+      throw new ForbiddenException('Teachers can edit only topic and homework');
+    }
+
+    // У выплаченного занятия можно править только тему и домашнее задание
+    const changesPay = teacherChanged || !lesson.teacherRate || timeChanged;
 
     if (changesPay && lesson.payoutExpenseId) {
       throw this.paidOutException();
@@ -558,9 +585,11 @@ export class LessonsService {
   private async findLesson(
     organizationId: string,
     id: string,
+    scope: TeacherScope = null,
   ): Promise<LessonWithRelations> {
+    // Чужое занятие для преподавателя выглядит как несуществующее
     const lesson = await this.prisma.lesson.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, teacherId: scope?.teacherId },
       include: lessonInclude,
     });
 
@@ -569,6 +598,13 @@ export class LessonsService {
     }
 
     return lesson;
+  }
+
+  private getScope(
+    organizationId: string,
+    session: OrganizationSession,
+  ): Promise<TeacherScope> {
+    return resolveTeacherScope(this.prisma, organizationId, session);
   }
 
   // Пересечение ловит exclusion constraint в БД, поэтому гонки не страшны

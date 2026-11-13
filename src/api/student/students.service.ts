@@ -12,6 +12,10 @@ import {
   SubscriptionStatus,
 } from '../../generated/prisma/enums.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+import {
+  resolveTeacherScope,
+  type TeacherScope,
+} from '../shared/teacher-scope.js';
 import type { CreateStudentDto } from './dto/create-student.dto.js';
 import type { ListStudentsQueryDto } from './dto/list-students-query.dto.js';
 import type { UpdateStudentDto } from './dto/update-student.dto.js';
@@ -22,6 +26,7 @@ import type {
 } from './dto/student-response.dto.js';
 
 type OrganizationSession = {
+  user: { id: string };
   session: { activeOrganizationId?: string | null };
 };
 
@@ -43,6 +48,7 @@ export class StudentsService {
     query: ListStudentsQueryDto,
   ): Promise<StudentListResponseDto> {
     const organizationId = this.getOrganizationId(session);
+    const scope = await this.getScope(organizationId, session);
     const where: Prisma.StudentWhereInput = { organizationId };
 
     if (!query.status) {
@@ -62,7 +68,10 @@ export class StudentsService {
       ];
     }
 
-    if (query.teacherId) {
+    // Преподаватель видит только закреплённых за ним учеников
+    if (scope) {
+      where.teacherId = scope.teacherId;
+    } else if (query.teacherId) {
       where.teacherId = query.teacherId;
     }
 
@@ -100,7 +109,13 @@ export class StudentsService {
     id: string,
   ): Promise<StudentResponseDto> {
     const organizationId = this.getOrganizationId(session);
-    const student = await this.findStudent(organizationId, id, studentInclude);
+    const scope = await this.getScope(organizationId, session);
+    const student = await this.findStudent(
+      organizationId,
+      id,
+      studentInclude,
+      scope,
+    );
     const lessonsLeft = await this.getLessonsLeft([student.id]);
 
     return this.toStudentResponse(student, lessonsLeft.get(student.id) ?? 0);
@@ -111,7 +126,8 @@ export class StudentsService {
     id: string,
   ): Promise<StudentBalanceResponseDto> {
     const organizationId = this.getOrganizationId(session);
-    await this.findStudent(organizationId, id);
+    const scope = await this.getScope(organizationId, session);
+    await this.findStudent(organizationId, id, undefined, scope);
 
     const [packages, lastPayment] = await this.prisma.$transaction([
       this.prisma.studentSubscription.aggregate({
@@ -281,9 +297,11 @@ export class StudentsService {
     organizationId: string,
     id: string,
     include?: TInclude,
+    scope: TeacherScope = null,
   ): Promise<Prisma.StudentGetPayload<{ include: TInclude }>> {
+    // Чужой ученик для преподавателя выглядит как несуществующий
     const student = await this.prisma.student.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, teacherId: scope?.teacherId },
       include,
     });
 
@@ -292,6 +310,13 @@ export class StudentsService {
     }
 
     return student as Prisma.StudentGetPayload<{ include: TInclude }>;
+  }
+
+  private getScope(
+    organizationId: string,
+    session: OrganizationSession,
+  ): Promise<TeacherScope> {
+    return resolveTeacherScope(this.prisma, organizationId, session);
   }
 
   private async assertActiveTeacher(

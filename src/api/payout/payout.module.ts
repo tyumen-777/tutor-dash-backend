@@ -9,5 +9,6 @@ import { PayoutsService } from './payouts.service.js';
   imports: [InfraModule, ExpenseModule],
   controllers: [PayoutsController],
   providers: [PayoutsService],
+  exports: [PayoutsService],
 })
 export class PayoutModule {}

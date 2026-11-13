@@ -5,6 +5,7 @@ import { DashboardModule } from './dashboard/dashboard.module.js';
 import { ExpenseModule } from './expense/expense.module.js';
 import { HealthModule } from './health/health.module.js';
 import { LessonModule } from './lesson/lesson.module.js';
+import { MeModule } from './me/me.module.js';
 import { OrganizationModule } from './organization/organization.module.js';
 import { PaymentModule } from './payment/payment.module.js';
 import { PayoutModule } from './payout/payout.module.js';
@@ -25,6 +26,7 @@ import { TeacherModule } from './teacher/teacher.module.js';
     PayoutModule,
     LessonModule,
     DashboardModule,
+    MeModule,
     HealthModule,
   ],
 })

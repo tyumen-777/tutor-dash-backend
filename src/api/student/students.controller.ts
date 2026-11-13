@@ -54,7 +54,7 @@ export class StudentsController {
   constructor(private readonly studentsService: StudentsService) {}
 
   @RequireActiveOrg()
-  @OrgRoles(['owner', 'admin', 'manager', 'accountant'])
+  @OrgRoles(['owner', 'admin', 'manager', 'accountant', 'teacher'])
   @Get()
   @ApiOperation({
     summary: 'Список учеников',
@@ -73,7 +73,7 @@ export class StudentsController {
   }
 
   @RequireActiveOrg()
-  @OrgRoles(['owner', 'admin', 'manager', 'accountant'])
+  @OrgRoles(['owner', 'admin', 'manager', 'accountant', 'teacher'])
   @Get(':id')
   @ApiOperation({
     summary: 'Получение ученика',
@@ -92,7 +92,7 @@ export class StudentsController {
   }
 
   @RequireActiveOrg()
-  @OrgRoles(['owner', 'admin', 'manager', 'accountant'])
+  @OrgRoles(['owner', 'admin', 'manager', 'accountant', 'teacher'])
   @Get(':id/balance')
   @ApiOperation({
     summary: 'Баланс занятий ученика',

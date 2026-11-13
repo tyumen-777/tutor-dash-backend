@@ -56,7 +56,7 @@ export class LessonsController {
   constructor(private readonly lessonsService: LessonsService) {}
 
   @RequireActiveOrg()
-  @OrgRoles(['owner', 'admin', 'manager', 'accountant'])
+  @OrgRoles(['owner', 'admin', 'manager', 'accountant', 'teacher'])
   @Get()
   @ApiOperation({
     summary: 'Список занятий',
@@ -75,7 +75,7 @@ export class LessonsController {
   }
 
   @RequireActiveOrg()
-  @OrgRoles(['owner', 'admin', 'manager', 'accountant'])
+  @OrgRoles(['owner', 'admin', 'manager', 'accountant', 'teacher'])
   @Get(':id')
   @ApiOperation({
     summary: 'Получение занятия',
@@ -94,7 +94,7 @@ export class LessonsController {
   }
 
   @RequireActiveOrg()
-  @OrgRoles(['owner', 'admin', 'manager'])
+  @OrgRoles(['owner', 'admin', 'manager', 'teacher'])
   @Post()
   @ApiOperation({
     summary: 'Внесение проведённого занятия',
@@ -121,7 +121,7 @@ export class LessonsController {
   }
 
   @RequireActiveOrg()
-  @OrgRoles(['owner', 'admin', 'manager'])
+  @OrgRoles(['owner', 'admin', 'manager', 'teacher'])
   @Patch(':id')
   @ApiOperation({
     summary: 'Изменение занятия',

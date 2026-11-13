@@ -8,6 +8,7 @@ import {
 import { Prisma, type Teacher } from '../../generated/prisma/client.js';
 import { LessonStatus } from '../../generated/prisma/enums.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+import { revokeTeacherAccess } from './teacher-access.js';
 import type { ArchiveTeacherDto } from './dto/archive-teacher.dto.js';
 import type { CreateTeacherDto } from './dto/create-teacher.dto.js';
 import type { ListTeachersQueryDto } from './dto/list-teachers-query.dto.js';
@@ -135,6 +136,9 @@ export class TeachersService {
         },
         data: { validTo: today },
       });
+
+      // Уволенный учитель теряет вход в личный кабинет
+      await revokeTeacherAccess(tx, organizationId, teacher);
 
       return tx.teacher.findUniqueOrThrow({ where: { id } });
     });

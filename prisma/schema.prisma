@@ -139,14 +139,18 @@ model invitation {
   status         String   @default("pending")
   expiresAt      DateTime
   inviterId      String
+  // Приглашение в личный кабинет конкретного преподавателя
+  teacherId      String?  @db.Uuid
   createdAt      DateTime @default(now())
 
   organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   inviter      user         @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+  teacher      Teacher?     @relation(fields: [teacherId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([email])
   @@index([inviterId])
+  @@index([teacherId])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -347,6 +351,7 @@ model Teacher {
   scheduleRules ScheduleRule[]
   lessons       Lesson[]
   expenses      Expense[]
+  invitations   invitation[]
 
   @@index([organizationId, isActive])
   @@index([organizationId, fullName])

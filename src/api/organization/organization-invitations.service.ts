@@ -12,12 +12,23 @@ import { fromNodeHeaders } from 'better-auth/node';
 import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 
+import type { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import { auth } from '../auth/auth.js';
 import { toAuthHeaders } from '../auth/auth-headers.js';
+import { TEACHER_ROLE } from '../teacher/teacher-access.js';
 import type { AcceptInvitationDto } from './dto/accept-invitation.dto.js';
 import type { CreateInvitationDto } from './dto/create-invitation.dto.js';
 import type { InvitationResponseDto } from './dto/invitation-response.dto.js';
+
+const INVITATION_INCLUDE = {
+  organization: true,
+  teacher: { select: { id: true, fullName: true } },
+} satisfies Prisma.invitationInclude;
+
+type InvitationWithRelations = Prisma.invitationGetPayload<{
+  include: typeof INVITATION_INCLUDE;
+}>;
 
 type SessionUser = {
   id: string;
@@ -39,6 +50,13 @@ export class OrganizationInvitationsService {
 
     if (!organizationId) {
       throw new BadRequestException('Active organization is required');
+    }
+
+    // Учителю без карточки нечего показать в кабинете
+    if (dto.role === TEACHER_ROLE) {
+      throw new BadRequestException(
+        'Teachers are invited from their profile: POST /teachers/{id}/access/invite',
+      );
     }
 
     const existingMember = await this.prisma.member.findFirst({
@@ -78,9 +96,7 @@ export class OrganizationInvitationsService {
         expiresAt: this.getDefaultExpirationDate(),
         inviterId: session.user.id,
       },
-      include: {
-        organization: true,
-      },
+      include: INVITATION_INCLUDE,
     });
 
     return this.toInvitationResponse(invitation);
@@ -88,8 +104,11 @@ export class OrganizationInvitationsService {
 
   async getInvitation(id: string) {
     const invitation = await this.findInvitation(id);
+    const accountExists = await this.prisma.user.count({
+      where: { email: invitation.email },
+    });
 
-    return this.toInvitationResponse(invitation);
+    return this.toInvitationResponse(invitation, accountExists > 0);
   }
 
   async acceptInvitation(
@@ -172,7 +191,7 @@ export class OrganizationInvitationsService {
         },
       });
 
-      await tx.member.create({
+      const member = await tx.member.create({
         data: {
           id: randomUUID(),
           organizationId: invitation.organizationId,
@@ -182,12 +201,8 @@ export class OrganizationInvitationsService {
         },
       });
 
-      await tx.invitation.update({
-        where: { id: invitation.id },
-        data: {
-          status: 'accepted',
-        },
-      });
+      await this.linkTeacherProfile(tx, invitation, member.id);
+      await this.markAccepted(tx, invitation.id);
 
       return createdUser;
     });
@@ -225,7 +240,7 @@ export class OrganizationInvitationsService {
 
   private async addMemberAndAcceptInvitation(
     userId: string,
-    invitation: Awaited<ReturnType<typeof this.findInvitation>>,
+    invitation: InvitationWithRelations,
   ) {
     const existingMember = await this.prisma.member.findUnique({
       where: {
@@ -242,30 +257,65 @@ export class OrganizationInvitationsService {
       );
     }
 
-    await this.prisma.$transaction([
-      this.prisma.member.create({
+    await this.prisma.$transaction(async (tx) => {
+      const member = await tx.member.create({
         data: {
           id: randomUUID(),
           organizationId: invitation.organizationId,
           userId,
           role: invitation.role,
         },
-      }),
-      this.prisma.invitation.update({
-        where: { id: invitation.id },
-        data: {
-          status: 'accepted',
-        },
-      }),
-    ]);
+      });
+
+      await this.linkTeacherProfile(tx, invitation, member.id);
+      await this.markAccepted(tx, invitation.id);
+    });
+  }
+
+  // Приглашение из карточки учителя связывает её с новым участником школы
+  private async linkTeacherProfile(
+    tx: Prisma.TransactionClient,
+    invitation: InvitationWithRelations,
+    memberId: string,
+  ): Promise<void> {
+    if (!invitation.teacherId) {
+      return;
+    }
+
+    const { count } = await tx.teacher.updateMany({
+      where: {
+        id: invitation.teacherId,
+        organizationId: invitation.organizationId,
+        isActive: true,
+        memberId: null,
+      },
+      data: { memberId },
+    });
+
+    if (count === 0) {
+      throw new ConflictException('Teacher profile is no longer available');
+    }
+  }
+
+  private async markAccepted(
+    tx: Prisma.TransactionClient,
+    invitationId: string,
+  ): Promise<void> {
+    // Условие по статусу защищает от двойного принятия одной ссылки
+    const { count } = await tx.invitation.updateMany({
+      where: { id: invitationId, status: 'pending' },
+      data: { status: 'accepted' },
+    });
+
+    if (count === 0) {
+      throw new ConflictException('Invitation is not pending');
+    }
   }
 
   private async findInvitation(id: string) {
     const invitation = await this.prisma.invitation.findUnique({
       where: { id },
-      include: {
-        organization: true,
-      },
+      include: INVITATION_INCLUDE,
     });
 
     if (!invitation) {
@@ -276,7 +326,7 @@ export class OrganizationInvitationsService {
   }
 
   private assertInvitationCanBeAccepted(
-    invitation: Awaited<ReturnType<typeof this.findInvitation>>,
+    invitation: InvitationWithRelations,
   ): void {
     if (invitation.status !== 'pending') {
       throw new ConflictException('Invitation is not pending');
@@ -288,7 +338,8 @@ export class OrganizationInvitationsService {
   }
 
   private toInvitationResponse(
-    invitation: Awaited<ReturnType<typeof this.findInvitation>>,
+    invitation: InvitationWithRelations,
+    accountExists = true,
   ): InvitationResponseDto {
     return {
       id: invitation.id,
@@ -301,6 +352,10 @@ export class OrganizationInvitationsService {
         name: invitation.organization.name,
         slug: invitation.organization.slug,
       },
+      teacher: invitation.teacher
+        ? { id: invitation.teacher.id, fullName: invitation.teacher.fullName }
+        : null,
+      accountExists,
     };
   }
 

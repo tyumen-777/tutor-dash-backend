@@ -44,6 +44,24 @@ export const invitationResponseSchema = z
       examples: ['2026-10-26T12:00:00.000Z'],
     }),
     organization: organizationSummarySchema,
+    teacher: z
+      .object({
+        id: z.string().meta({ description: 'Teacher ID.' }),
+        fullName: z.string().meta({
+          description: 'Teacher full name.',
+          examples: ['Анна Смирнова'],
+        }),
+      })
+      .nullable()
+      .meta({
+        description:
+          'Teacher profile the invitation is linked to (personal cabinet).',
+      }),
+    accountExists: z.boolean().meta({
+      description:
+        'Whether a user with the invited email already exists: then they sign in instead of setting a password.',
+      examples: [false],
+    }),
   })
   .meta({
     id: 'InvitationResponse',
