@@ -111,10 +111,39 @@ export const dashboardSummaryResponseSchema = z
         description:
           'School expenses. Null for roles without access to expenses.',
       }),
-    profit: money(
-      'Income minus paid expenses this month. Null without access to expenses.',
-      '157000.00',
-    ).nullable(),
+    finance: z
+      .object({
+        revenue: money(
+          'Earned this month: held lessons priced by their package (package price / lessons in it).',
+          '186000.00',
+        ),
+        teacherPay: money(
+          'Teacher pay accrued for lessons held this month, paid out or not.',
+          '96000.00',
+        ),
+        otherExpenses: money(
+          'Paid expenses this month except teacher payouts.',
+          '40000.00',
+        ),
+        profit: money('revenue − teacherPay − otherExpenses.', '50000.00'),
+        cashFlow: money(
+          'Money in minus money out this month: income − paid expenses (payouts included).',
+          '157000.00',
+        ),
+        prepaid: money(
+          'Value of paid but not yet held lessons today (owed to students).',
+          '210000.00',
+        ),
+        teacherDebt: money(
+          'Accrued teacher pay not paid out yet, all time.',
+          '48000.00',
+        ),
+      })
+      .nullable()
+      .meta({
+        description:
+          'Profit by held lessons and school liabilities. Null for roles without access to expenses.',
+      }),
     students: z.object({
       activeCount: count('Active students.', 418),
       pausedCount: count('Students on pause.', 18),

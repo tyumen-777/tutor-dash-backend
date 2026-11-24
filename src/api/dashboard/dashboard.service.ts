@@ -10,6 +10,7 @@ import {
 } from '../../generated/prisma/enums.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { DashboardSummaryResponseDto } from './dto/dashboard-summary-response.dto.js';
+import { buildFinance } from './finance.js';
 import {
   addDays,
   previousMonthRange,
@@ -74,6 +75,7 @@ export class DashboardService {
       income,
       previousIncome,
       expenses,
+      earnings,
       students,
       lessons,
       todayLessons,
@@ -84,6 +86,9 @@ export class DashboardService {
       this.sumPayments(organizationId, previous.from, previous.to),
       canSeeExpenses
         ? this.getExpenses(organizationId, from, today)
+        : Promise.resolve(null),
+      canSeeExpenses
+        ? this.getEarnings(organizationId, from, today, monthLessons)
         : Promise.resolve(null),
       this.getStudentCounts(organizationId, today),
       this.getLessonCounts(organizationId, monthLessons, today, timezone),
@@ -106,9 +111,14 @@ export class DashboardService {
         pendingAmount: expenses.pendingAmount.toFixed(2),
         pendingCount: expenses.pendingCount,
       },
-      profit: expenses
-        ? income.amount.minus(expenses.paidAmount).toFixed(2)
-        : null,
+      finance:
+        expenses && earnings
+          ? buildFinance({
+              income: income.amount,
+              paidExpenses: expenses.paidAmount,
+              ...earnings,
+            })
+          : null,
       students: {
         ...students,
         lowBalanceCount: lowBalanceStudents.count,
@@ -165,6 +175,77 @@ export class DashboardService {
       paidAmount: paid._sum.amount ?? new Prisma.Decimal(0),
       pendingAmount: pending._sum.amount ?? new Prisma.Decimal(0),
       pendingCount: pending._count._all,
+    };
+  }
+
+  /**
+   * Заработанное за месяц и обязательства школы на сегодня.
+   * Цена занятия — цена пакета, из которого оно списано, делённая на
+   * количество занятий в пакете.
+   */
+  private async getEarnings(
+    organizationId: string,
+    from: string,
+    to: string,
+    monthLessons: { gte: Date; lt: Date },
+  ) {
+    const zero = new Prisma.Decimal(0);
+    const [[earned], [prepaid], teacherPay, otherExpenses, teacherDebt] =
+      await this.prisma.$transaction([
+        this.prisma.$queryRaw<{ amount: Prisma.Decimal | null }[]>`
+          SELECT ROUND(SUM(s."price" / s."lessonsTotal"), 2) AS "amount"
+          FROM "subscription_usages" u
+          JOIN "lessons" l ON l."id" = u."lessonId"
+          JOIN "student_subscriptions" s ON s."id" = u."subscriptionId"
+          WHERE u."organizationId" = ${organizationId}
+            AND u."type" = 'LESSON'
+            AND l."status" = 'COMPLETED'
+            AND l."startsAt" >= ${monthLessons.gte}
+            AND l."startsAt" < ${monthLessons.lt}`,
+        this.prisma.$queryRaw<{ amount: Prisma.Decimal | null }[]>`
+          SELECT ROUND(SUM(s."price" * s."lessonsLeft" / s."lessonsTotal"), 2)
+            AS "amount"
+          FROM "student_subscriptions" s
+          WHERE s."organizationId" = ${organizationId}
+            AND s."status" <> 'CANCELED'
+            AND s."lessonsLeft" > 0`,
+        this.prisma.lesson.aggregate({
+          where: {
+            organizationId,
+            status: LessonStatus.COMPLETED,
+            startsAt: monthLessons,
+          },
+          _sum: { teacherPay: true },
+        }),
+        // Выплаты преподавателям уже учтены начислением за занятия
+        this.prisma.expense.aggregate({
+          where: {
+            organizationId,
+            status: ExpenseStatus.PAID,
+            payoutLessons: { none: {} },
+            spentOn: {
+              gte: new Date(`${from}T00:00:00.000Z`),
+              lte: new Date(`${to}T00:00:00.000Z`),
+            },
+          },
+          _sum: { amount: true },
+        }),
+        this.prisma.lesson.aggregate({
+          where: {
+            organizationId,
+            status: LessonStatus.COMPLETED,
+            payoutExpenseId: null,
+          },
+          _sum: { teacherPay: true },
+        }),
+      ]);
+
+    return {
+      revenue: new Prisma.Decimal(earned?.amount ?? zero),
+      prepaid: new Prisma.Decimal(prepaid?.amount ?? zero),
+      teacherPay: teacherPay._sum.teacherPay ?? zero,
+      otherExpenses: otherExpenses._sum.amount ?? zero,
+      teacherDebt: teacherDebt._sum.teacherPay ?? zero,
     };
   }
 
