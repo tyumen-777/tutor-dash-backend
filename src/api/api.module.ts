@@ -3,6 +3,7 @@ import { AdminModule } from './admin/admin.module.js';
 import { BackendAuthModule } from './auth/backend-auth.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
 import { ExpenseModule } from './expense/expense.module.js';
+import { FinanceLogModule } from './finance-log/finance-log.module.js';
 import { HealthModule } from './health/health.module.js';
 import { LessonModule } from './lesson/lesson.module.js';
 import { MeModule } from './me/me.module.js';
@@ -24,6 +25,7 @@ import { TeacherModule } from './teacher/teacher.module.js';
     PaymentModule,
     ExpenseModule,
     PayoutModule,
+    FinanceLogModule,
     LessonModule,
     DashboardModule,
     MeModule,

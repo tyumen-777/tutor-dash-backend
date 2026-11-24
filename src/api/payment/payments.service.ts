@@ -7,10 +7,22 @@ import {
 
 import { Prisma } from '../../generated/prisma/client.js';
 import {
+  FinanceLogAction,
+  FinanceLogEntity,
   PaymentStatus,
   SubscriptionStatus,
+  SubscriptionUsageType,
 } from '../../generated/prisma/enums.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+import {
+  describeCanceled,
+  describeCreated,
+  diffPayment,
+  type PaymentChanges,
+  type PaymentSnapshot,
+  studentName,
+  toJson,
+} from '../finance-log/payment-log.js';
 import type { CreatePaymentDto } from './dto/create-payment.dto.js';
 import type { ListPaymentsQueryDto } from './dto/list-payments-query.dto.js';
 import type {
@@ -153,7 +165,21 @@ export class PaymentsService {
         },
       });
 
-      return tx.payment.create({
+      // Начисление пакета — первая запись журнала, чтобы сумма lessonsDelta
+      // совпадала с остатком
+      await tx.subscriptionUsage.create({
+        data: {
+          organizationId,
+          subscriptionId: subscription.id,
+          studentId: dto.studentId,
+          type: SubscriptionUsageType.ADJUSTMENT,
+          lessonsDelta: dto.lessonsCount,
+          comment: 'Оплата',
+          createdByUserId: session.user.id,
+        },
+      });
+
+      const created = await tx.payment.create({
         data: {
           organizationId,
           studentId: dto.studentId,
@@ -167,6 +193,13 @@ export class PaymentsService {
         },
         include: paymentInclude,
       });
+
+      await this.writeLog(tx, session, created, {
+        action: FinanceLogAction.CREATED,
+        description: describeCreated(this.toSnapshot(created)),
+      });
+
+      return created;
     });
 
     return this.toPaymentResponse(payment);
@@ -191,6 +224,11 @@ export class PaymentsService {
       });
 
       this.assertNotInFuture(dto.paidOn, organization.timezone);
+      this.assertMonthOpen(
+        payment.paidAt.toISOString().slice(0, 10),
+        dto.paidOn,
+        organization.timezone,
+      );
     }
 
     const { subscription } = payment;
@@ -202,28 +240,34 @@ export class PaymentsService {
     const amount = dto.amount?.toFixed(2);
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      // Условное обновление блокирует строку оплаты до конца транзакции:
+      // параллельная отмена дождётся нас или, наоборот, мы получим count = 0
+      const { count } = await tx.payment.updateMany({
+        where: { id, organizationId, status: PaymentStatus.COMPLETED },
+        data: {
+          amount,
+          method: dto.method,
+          paidAt: dto.paidOn ? this.toPaidAt(dto.paidOn) : undefined,
+          comment: dto.comment === undefined ? undefined : dto.comment || null,
+        },
+      });
+
+      if (count === 0) {
+        throw new ConflictException('Only completed payments can be edited');
+      }
+
       if (subscription) {
-        const data: Prisma.StudentSubscriptionUpdateInput = {};
-
         if (dto.lessonsCount !== undefined) {
-          const used = subscription.lessonsTotal - subscription.lessonsLeft;
-
-          if (dto.lessonsCount < used) {
-            throw new ConflictException(
-              `Package already has ${used} used lessons; lessonsCount cannot be lower`,
-            );
-          }
-
-          const lessonsLeft = dto.lessonsCount - used;
-
-          data.name = this.packageName(dto.lessonsCount);
-          data.lessonsTotal = dto.lessonsCount;
-          data.lessonsLeft = lessonsLeft;
-          data.status =
-            lessonsLeft === 0
-              ? SubscriptionStatus.EXHAUSTED
-              : SubscriptionStatus.ACTIVE;
+          await this.changePackageSize(
+            tx,
+            organizationId,
+            subscription.id,
+            dto.lessonsCount,
+            session.user.id,
+          );
         }
+
+        const data: Prisma.StudentSubscriptionUpdateInput = {};
 
         if (amount !== undefined) {
           data.price = amount;
@@ -241,16 +285,24 @@ export class PaymentsService {
         }
       }
 
-      return tx.payment.update({
+      const fresh = await tx.payment.findUniqueOrThrow({
         where: { id },
-        data: {
-          amount,
-          method: dto.method,
-          paidAt: dto.paidOn ? this.toPaidAt(dto.paidOn) : undefined,
-          comment: dto.comment === undefined ? undefined : dto.comment || null,
-        },
         include: paymentInclude,
       });
+      const diff = diffPayment(
+        this.toSnapshot(payment),
+        this.toSnapshot(fresh),
+      );
+
+      if (diff) {
+        await this.writeLog(tx, session, fresh, {
+          action: FinanceLogAction.UPDATED,
+          description: diff.description,
+          changes: diff.changes,
+        });
+      }
+
+      return fresh;
     });
 
     return this.toPaymentResponse(updated);
@@ -270,9 +322,7 @@ export class PaymentsService {
     const { subscription } = payment;
 
     if (subscription && subscription.lessonsLeft < subscription.lessonsTotal) {
-      throw new ConflictException(
-        'Lessons from this package have already been used; the payment cannot be canceled',
-      );
+      throw this.packageUsedException();
     }
 
     const canceled = await this.prisma.$transaction(async (tx) => {
@@ -286,11 +336,46 @@ export class PaymentsService {
       }
 
       if (subscription) {
-        await tx.studentSubscription.update({
-          where: { id: subscription.id },
-          data: { status: SubscriptionStatus.CANCELED, lessonsLeft: 0 },
-        });
+        // Размер пакета меняется только через оплату, а она уже заблокирована
+        const { lessonsTotal } = await tx.studentSubscription.findUniqueOrThrow(
+          { where: { id: subscription.id }, select: { lessonsTotal: true } },
+        );
+
+        // Условие по остатку не даст аннулировать пакет, если занятие
+        // успели списать после проверки выше
+        const { count: canceledPackages } =
+          await tx.studentSubscription.updateMany({
+            where: {
+              id: subscription.id,
+              status: { not: SubscriptionStatus.CANCELED },
+              lessonsLeft: lessonsTotal,
+            },
+            data: { status: SubscriptionStatus.CANCELED, lessonsLeft: 0 },
+          });
+
+        if (canceledPackages === 0) {
+          throw this.packageUsedException();
+        }
+
+        if (lessonsTotal > 0) {
+          await tx.subscriptionUsage.create({
+            data: {
+              organizationId,
+              subscriptionId: subscription.id,
+              studentId: payment.student.id,
+              type: SubscriptionUsageType.ADJUSTMENT,
+              lessonsDelta: -lessonsTotal,
+              comment: 'Отмена оплаты',
+              createdByUserId: session.user.id,
+            },
+          });
+        }
       }
+
+      await this.writeLog(tx, session, payment, {
+        action: FinanceLogAction.CANCELED,
+        description: describeCanceled(this.toSnapshot(payment)),
+      });
 
       return tx.payment.findUniqueOrThrow({
         where: { id },
@@ -299,6 +384,121 @@ export class PaymentsService {
     });
 
     return this.toPaymentResponse(canceled);
+  }
+
+  /**
+   * Меняет количество занятий в пакете на разницу (дельту), а не перезаписывает
+   * остаток: так не теряются списания, которые прошли параллельно.
+   * Каждое изменение пишется в журнал SubscriptionUsage как ADJUSTMENT.
+   */
+  private async changePackageSize(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    subscriptionId: string,
+    lessonsCount: number,
+    userId: string,
+  ): Promise<void> {
+    const current = await tx.studentSubscription.findUniqueOrThrow({
+      where: { id: subscriptionId },
+      select: { studentId: true, lessonsTotal: true },
+    });
+    const delta = lessonsCount - current.lessonsTotal;
+
+    if (delta === 0) {
+      return;
+    }
+
+    // Новый остаток = lessonsLeft + delta ≥ 0, то есть занятий не меньше,
+    // чем уже списано. Postgres перепроверит условие по свежей строке,
+    // если её параллельно изменило списание занятия.
+    const { count } = await tx.studentSubscription.updateMany({
+      where: {
+        id: subscriptionId,
+        status: { not: SubscriptionStatus.CANCELED },
+        lessonsTotal: current.lessonsTotal,
+        lessonsLeft: { gte: -delta },
+      },
+      data: {
+        name: this.packageName(lessonsCount),
+        lessonsTotal: lessonsCount,
+        lessonsLeft: { increment: delta },
+      },
+    });
+
+    if (count === 0) {
+      const fresh = await tx.studentSubscription.findUniqueOrThrow({
+        where: { id: subscriptionId },
+        select: { lessonsTotal: true, lessonsLeft: true },
+      });
+      const used = fresh.lessonsTotal - fresh.lessonsLeft;
+
+      throw new ConflictException(
+        `Package already has ${used} used lessons; lessonsCount cannot be lower`,
+      );
+    }
+
+    await tx.studentSubscription.updateMany({
+      where: { id: subscriptionId, lessonsLeft: 0 },
+      data: { status: SubscriptionStatus.EXHAUSTED },
+    });
+    await tx.studentSubscription.updateMany({
+      where: { id: subscriptionId, lessonsLeft: { gt: 0 } },
+      data: { status: SubscriptionStatus.ACTIVE },
+    });
+
+    await tx.subscriptionUsage.create({
+      data: {
+        organizationId,
+        subscriptionId,
+        studentId: current.studentId,
+        type: SubscriptionUsageType.ADJUSTMENT,
+        lessonsDelta: delta,
+        comment: `Изменение оплаты: ${current.lessonsTotal} → ${lessonsCount} зан.`,
+        createdByUserId: userId,
+      },
+    });
+  }
+
+  private async writeLog(
+    tx: Prisma.TransactionClient,
+    session: OrganizationSession,
+    payment: PaymentWithRelations,
+    entry: {
+      action: FinanceLogAction;
+      description: string;
+      changes?: PaymentChanges;
+    },
+  ): Promise<void> {
+    await tx.financeLog.create({
+      data: {
+        organizationId: this.getOrganizationId(session),
+        entityType: FinanceLogEntity.PAYMENT,
+        entityId: payment.id,
+        studentId: payment.student.id,
+        action: entry.action,
+        description: entry.description,
+        changes: entry.changes ? toJson(entry.changes) : undefined,
+        actorUserId: session.user.id,
+      },
+    });
+  }
+
+  private toSnapshot(payment: PaymentWithRelations): PaymentSnapshot {
+    return {
+      amount: payment.amount.toFixed(2),
+      currency: payment.currency,
+      method: payment.method,
+      paidOn: payment.paidAt.toISOString().slice(0, 10),
+      comment: payment.comment,
+      lessonsCount: payment.subscription?.lessonsTotal ?? null,
+      studentName: studentName(payment.student),
+    };
+  }
+
+  private packageUsedException(): ConflictException {
+    return new ConflictException(
+      'Lessons from this package have already been used; the payment cannot be canceled',
+    );
   }
 
   private async findPayment(
@@ -318,16 +518,41 @@ export class PaymentsService {
   }
 
   private assertNotInFuture(paidOn: string, timezone: string): void {
-    const today = new Intl.DateTimeFormat('en-CA', {
+    if (paidOn > this.schoolToday(timezone)) {
+      throw new BadRequestException('paidOn cannot be in the future');
+    }
+  }
+
+  /**
+   * Прошлые месяцы считаются закрытыми: перенос даты в них или из них
+   * переписал бы доход за период, по которому уже подведены итоги.
+   * Дату можно двигать только внутри текущего месяца школы.
+   */
+  private assertMonthOpen(
+    currentPaidOn: string,
+    nextPaidOn: string,
+    timezone: string,
+  ): void {
+    if (currentPaidOn === nextPaidOn) {
+      return;
+    }
+
+    const monthStart = `${this.schoolToday(timezone).slice(0, 7)}-01`;
+
+    if (currentPaidOn < monthStart || nextPaidOn < monthStart) {
+      throw new ConflictException(
+        'Payment date cannot be moved into or out of a closed month',
+      );
+    }
+  }
+
+  private schoolToday(timezone: string): string {
+    return new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
     }).format(new Date());
-
-    if (paidOn > today) {
-      throw new BadRequestException('paidOn cannot be in the future');
-    }
   }
 
   private packageName(lessonsCount: number): string {

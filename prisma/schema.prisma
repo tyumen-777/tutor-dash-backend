@@ -35,6 +35,7 @@ model user {
   createdPayments Payment[]
   createdExpenses Expense[]
   deletedLessons  Lesson[]
+  financeLogs     FinanceLog[]
 }
 
 model session {
@@ -113,6 +114,7 @@ model organization {
   lessonParticipants LessonParticipant[]
   expenses           Expense[]
   studyLevels        StudyLevel[]
+  financeLogs        FinanceLog[]
 }
 
 model member {
@@ -183,6 +185,16 @@ enum SubscriptionStatus {
 enum SubscriptionUsageType {
   LESSON // списание за занятие (−1)
   ADJUSTMENT // ручная корректировка (±N)
+}
+
+enum FinanceLogEntity {
+  PAYMENT
+}
+
+enum FinanceLogAction {
+  CREATED
+  UPDATED
+  CANCELED
 }
 
 enum PaymentMethod {
@@ -263,6 +275,7 @@ model Student {
   payments      Payment[]
   scheduleRules ScheduleRule[]
   lessons       LessonParticipant[]
+  financeLogs   FinanceLog[]
 
   @@unique([organizationId, userId])
   @@index([organizationId, status])
@@ -461,6 +474,32 @@ model Payment {
   @@index([studentId, paidAt])
   @@index([subscriptionId])
   @@map("payments")
+}
+
+// Журнал финансовых операций (только добавление): кто, когда и что сделал
+model FinanceLog {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  organizationId String
+  entityType     FinanceLogEntity
+  entityId       String           @db.Uuid
+  // Ученик, к которому относится операция (для оплат)
+  studentId      String?          @db.Uuid
+  action         FinanceLogAction
+  // Готовый текст на момент операции: не меняется при переименовании ученика
+  description    String
+  // Изменённые поля: { "amount": { "from": "8000.00", "to": "10000.00" } }
+  changes        Json?
+  actorUserId    String
+  createdAt      DateTime         @default(now()) @db.Timestamptz
+
+  organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student      Student?     @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  actor        user         @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([studentId])
+  @@map("finance_logs")
 }
 
 // Расход школы: аренда, зарплата, материалы и т. п.
