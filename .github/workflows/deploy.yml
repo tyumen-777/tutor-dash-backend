@@ -3,10 +3,13 @@ name: Build and deploy backend
 on:
   push:
     branches: [main]
+  # В pull request только проверки, без деплоя
+  pull_request:
   workflow_dispatch:
 
+# Деплой main отменяет предыдущий незавершённый; PR проверяются независимо
 concurrency:
-  group: deploy-backend
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -17,7 +20,62 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  # Типы, линтер, форматирование, тесты и миграции на чистой базе.
+  # Без зелёной проверки образ не собирается и в прод ничего не уходит
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.4-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: tutor_dash_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/tutor_dash_ci?schema=public
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Клиент Prisma не хранится в git
+      - run: npm run prisma:generate
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format
+        run: npx prettier --check "src/**/*.ts" "test/**/*.ts"
+
+      - name: Unit tests
+        run: npm test
+
+      # Миграции применяются при старте контейнера: сломанная миграция
+      # уронила бы прод, поэтому прогоняем их здесь на пустой базе
+      - name: Apply migrations to an empty database
+        run: npx prisma migrate deploy --config prisma7.config.ts
+
+      - name: Schema matches migrations
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code --config prisma7.config.ts
+
   build-and-deploy:
+    needs: check
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
