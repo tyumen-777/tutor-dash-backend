@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-import { financeLogActionSchema } from './list-finance-logs-query.dto.js';
+import {
+  financeLogActionSchema,
+  financeLogEntitySchema,
+} from './list-finance-logs-query.dto.js';
 
 export const financeLogResponseSchema = z
   .object({
@@ -13,12 +16,9 @@ export const financeLogResponseSchema = z
       examples: ['2026-11-14T09:30:00.000Z'],
     }),
     action: financeLogActionSchema,
-    entityType: z.enum(['PAYMENT']).meta({
-      description: 'What the operation was made on.',
-      examples: ['PAYMENT'],
-    }),
+    entityType: financeLogEntitySchema,
     entityId: z.uuid().meta({
-      description: 'ID of the payment.',
+      description: 'ID of the payment, or of the SALARY expense for a payout.',
       examples: ['01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b'],
     }),
     description: z.string().meta({
@@ -54,6 +54,18 @@ export const financeLogResponseSchema = z
       })
       .nullable()
       .meta({ description: 'Related student, if any.' }),
+    teacher: z
+      .object({
+        id: z.uuid().meta({
+          description: 'Teacher ID.',
+          examples: ['01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b'],
+        }),
+        fullName: z
+          .string()
+          .meta({ description: 'Full name.', examples: ['Ольга Пудовкина'] }),
+      })
+      .nullable()
+      .meta({ description: 'Related teacher, if any (payouts).' }),
   })
   .meta({
     id: 'FinanceLogResponse',

@@ -25,18 +25,14 @@ describe('createPaymentSchema', () => {
     });
   });
 
-  it('accepts zero amount and empty comment', () => {
-    const result = createPaymentSchema.parse({
-      ...validPayment,
-      amount: 0,
-      comment: ' ',
-    });
+  it('drops empty comment', () => {
+    const result = createPaymentSchema.parse({ ...validPayment, comment: ' ' });
 
-    expect(result.amount).toBe(0);
     expect(result.comment).toBeUndefined();
   });
 
   it.each([
+    ['zero amount', { amount: 0 }],
     ['negative amount', { amount: -1 }],
     ['amount with 3 fraction digits', { amount: 1.005 }],
     ['zero lessons', { lessonsCount: 0 }],

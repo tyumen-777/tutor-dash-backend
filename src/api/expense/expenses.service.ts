@@ -9,8 +9,12 @@ import { Prisma } from '../../generated/prisma/client.js';
 import {
   ExpenseCategory,
   ExpenseStatus,
+  FinanceLogAction,
+  FinanceLogEntity,
 } from '../../generated/prisma/enums.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+import { describePayoutCanceled } from '../finance-log/payout-log.js';
+import { assertPeriodsOpen } from '../shared/period-lock.js';
 import type { CreateExpenseDto } from './dto/create-expense.dto.js';
 import type {
   ExpenseListResponseDto,
@@ -140,26 +144,27 @@ export class ExpensesService {
 
     this.assertNotInFuture(dto.spentOn, organization.timezone);
 
-    if (dto.teacherId) {
-      await this.assertTeacher(organizationId, dto.teacherId);
-    }
+    const expense = await this.prisma.$transaction(async (tx) => {
+      await assertPeriodsOpen(tx, organizationId, [dto.spentOn]);
 
-    const expense = await this.prisma.expense.create({
-      data: {
-        organizationId,
-        spentOn: this.parseDate(dto.spentOn),
-        amount: dto.amount.toFixed(2),
-        currency: organization.currency,
-        category: dto.category,
-        recipient: dto.recipient ?? null,
-        method: dto.method,
-        status: dto.status,
-        description: dto.description,
-        comment: dto.comment ?? null,
-        teacherId: dto.teacherId ?? null,
-        createdByUserId: session.user.id,
-      },
-      include: expenseInclude,
+      return tx.expense.create({
+        data: {
+          organizationId,
+          spentOn: this.parseDate(dto.spentOn),
+          amount: dto.amount.toFixed(2),
+          currency: organization.currency,
+          category: dto.category,
+          recipient: dto.recipient ?? null,
+          method: dto.method,
+          status: dto.status,
+          description: dto.description,
+          comment: dto.comment ?? null,
+          // Преподаватель указывается только у выплат из POST /payouts
+          teacherId: null,
+          createdByUserId: session.user.id,
+        },
+        include: expenseInclude,
+      });
     });
 
     return this.toExpenseResponse(expense);
@@ -195,36 +200,49 @@ export class ExpensesService {
     }
 
     const category = dto.category ?? expense.category;
-    // Преподаватель указывается только у зарплаты; при смене категории он отвязывается
-    let teacherId =
-      dto.teacherId === undefined ? expense.teacher?.id : dto.teacherId;
+    // Новую привязку к преподавателю создаёт только POST /payouts. Здесь
+    // преподавателя можно лишь отвязать (dto.teacherId = null) у старого
+    // ручного расхода; при смене категории он отвязывается сам
+    const teacherId =
+      category === ExpenseCategory.SALARY && dto.teacherId === undefined
+        ? (expense.teacher?.id ?? null)
+        : null;
 
-    if (category !== ExpenseCategory.SALARY) {
-      if (dto.teacherId) {
-        throw new BadRequestException(
-          'teacherId is allowed only for SALARY expenses',
-        );
+    const spentOn = this.toSpentOn(expense.spentOn);
+    // В закрытом месяце можно поправить только описание, получателя и комментарий
+    const changesMoney =
+      (dto.spentOn !== undefined && dto.spentOn !== spentOn) ||
+      (dto.amount !== undefined && !expense.amount.equals(dto.amount)) ||
+      category !== expense.category ||
+      (dto.method !== undefined && dto.method !== expense.method) ||
+      (dto.status !== undefined && dto.status !== expense.status) ||
+      teacherId !== (expense.teacher?.id ?? null);
+
+    const count = await this.prisma.$transaction(async (tx) => {
+      if (changesMoney) {
+        await assertPeriodsOpen(tx, organizationId, [
+          spentOn,
+          dto.spentOn ?? spentOn,
+        ]);
       }
 
-      teacherId = null;
-    } else if (dto.teacherId) {
-      await this.assertTeacher(organizationId, dto.teacherId);
-    }
+      const result = await tx.expense.updateMany({
+        where: { id, organizationId, status: { not: ExpenseStatus.CANCELED } },
+        data: {
+          spentOn: dto.spentOn ? this.parseDate(dto.spentOn) : undefined,
+          amount: dto.amount?.toFixed(2),
+          category: dto.category,
+          recipient:
+            dto.recipient === undefined ? undefined : dto.recipient || null,
+          method: dto.method,
+          status: dto.status,
+          description: dto.description,
+          comment: dto.comment === undefined ? undefined : dto.comment || null,
+          teacherId,
+        },
+      });
 
-    const { count } = await this.prisma.expense.updateMany({
-      where: { id, organizationId, status: { not: ExpenseStatus.CANCELED } },
-      data: {
-        spentOn: dto.spentOn ? this.parseDate(dto.spentOn) : undefined,
-        amount: dto.amount?.toFixed(2),
-        category: dto.category,
-        recipient:
-          dto.recipient === undefined ? undefined : dto.recipient || null,
-        method: dto.method,
-        status: dto.status,
-        description: dto.description,
-        comment: dto.comment === undefined ? undefined : dto.comment || null,
-        teacherId: teacherId ?? null,
-      },
+      return result.count;
     });
 
     if (count === 0) {
@@ -239,9 +257,13 @@ export class ExpensesService {
     id: string,
   ): Promise<ExpenseResponseDto> {
     const organizationId = this.getOrganizationId(session);
-    await this.findExpense(organizationId, id);
+    const expense = await this.findExpense(organizationId, id);
 
     await this.prisma.$transaction(async (tx) => {
+      await assertPeriodsOpen(tx, organizationId, [
+        this.toSpentOn(expense.spentOn),
+      ]);
+
       const { count } = await tx.expense.updateMany({
         where: { id, organizationId, status: { not: ExpenseStatus.CANCELED } },
         data: { status: ExpenseStatus.CANCELED },
@@ -252,10 +274,33 @@ export class ExpensesService {
       }
 
       // Занятия отменённой выплаты снова ждут оплаты
-      await tx.lesson.updateMany({
+      const { count: lessonsCount } = await tx.lesson.updateMany({
         where: { organizationId, payoutExpenseId: id },
         data: { payoutExpenseId: null },
       });
+
+      // Расход с занятиями — выплата преподавателю: её отмена попадает в журнал
+      if (lessonsCount > 0) {
+        await tx.financeLog.create({
+          data: {
+            organizationId,
+            entityType: FinanceLogEntity.PAYOUT,
+            entityId: id,
+            teacherId: expense.teacher?.id ?? null,
+            action: FinanceLogAction.CANCELED,
+            description: describePayoutCanceled({
+              teacherName:
+                expense.teacher?.fullName ?? expense.recipient ?? '—',
+              amount: expense.amount.toFixed(2),
+              currency: expense.currency,
+              lessonsCount,
+              method: expense.method,
+              paidOn: expense.spentOn.toISOString().slice(0, 10),
+            }),
+            actorUserId: session.user.id,
+          },
+        });
+      }
     });
 
     return this.toExpenseResponse(await this.findExpense(organizationId, id));
@@ -290,20 +335,6 @@ export class ExpensesService {
     );
   }
 
-  private async assertTeacher(
-    organizationId: string,
-    teacherId: string,
-  ): Promise<void> {
-    const teacher = await this.prisma.teacher.findFirst({
-      where: { id: teacherId, organizationId },
-      select: { id: true },
-    });
-
-    if (!teacher) {
-      throw new BadRequestException('Teacher not found');
-    }
-  }
-
   private assertNotInFuture(spentOn: string, timezone: string): void {
     const today = new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,
@@ -319,6 +350,10 @@ export class ExpensesService {
 
   private parseDate(date: string): Date {
     return new Date(`${date}T00:00:00.000Z`);
+  }
+
+  private toSpentOn(spentOn: Date): string {
+    return spentOn.toISOString().slice(0, 10);
   }
 
   private getOrganizationId(session: OrganizationSession): string {

@@ -119,6 +119,48 @@ describe('LessonsService for a teacher', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  describe('registering an own lesson', () => {
+    beforeEach(() => {
+      prisma.student.findFirst.mockResolvedValue({
+        id: STUDENT,
+        status: 'ACTIVE',
+        teacherId: OWN_TEACHER,
+      });
+    });
+
+    const daysAgo = (days: number) =>
+      new Date(Date.now() - days * 24 * 60 * 60_000).toISOString();
+
+    it('rejects a lesson older than seven days', async () => {
+      await expect(
+        service.createLesson(session, {
+          studentId: STUDENT,
+          teacherId: OWN_TEACHER,
+          startsAt: daysAgo(8),
+          durationMin: 60,
+        }),
+      ).rejects.toThrow('startsAt is too far in the past');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('accepts a lesson within seven days', async () => {
+      prisma.$transaction.mockResolvedValue({ created: true });
+      vi.spyOn(
+        service as unknown as { toLessonResponse: (l: unknown) => unknown },
+        'toLessonResponse',
+      ).mockImplementation((lesson) => lesson);
+
+      await expect(
+        service.createLesson(session, {
+          studentId: STUDENT,
+          teacherId: OWN_TEACHER,
+          startsAt: daysAgo(6),
+          durationMin: 60,
+        }),
+      ).resolves.toEqual({ created: true });
+    });
+  });
+
   describe('editing', () => {
     beforeEach(() => {
       prisma.lesson.findFirst.mockResolvedValue({

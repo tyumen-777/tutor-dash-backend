@@ -15,6 +15,7 @@ import {
   SubscriptionUsageType,
 } from '../../generated/prisma/enums.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+import { assertPeriodsOpen } from '../shared/period-lock.js';
 import {
   resolveTeacherScope,
   type TeacherScope,
@@ -28,6 +29,7 @@ import type {
   LessonListResponseDto,
   LessonResponseDto,
 } from './dto/lesson-response.dto.js';
+import { teacherEarliestLessonStart } from './lesson-backdate.js';
 import { calculateTeacherPay, isLessonDuration } from './lesson-pay.js';
 
 type OrganizationSession = {
@@ -202,10 +204,25 @@ export class LessonsService {
       throw new BadRequestException('Teacher is archived');
     }
 
+    if (scope) {
+      const { timezone } = await this.prisma.organization.findUniqueOrThrow({
+        where: { id: organizationId },
+        select: { timezone: true },
+      });
+
+      if (startsAt < teacherEarliestLessonStart(timezone)) {
+        throw new BadRequestException(
+          'startsAt is too far in the past; older lessons are registered by a manager',
+        );
+      }
+    }
+
     let lesson: LessonWithRelations;
 
     try {
       lesson = await this.prisma.$transaction(async (tx) => {
+        await assertPeriodsOpen(tx, organizationId, [startsAt]);
+
         const subscriptionId = await this.deductLesson(tx, dto.studentId);
 
         const created = await tx.lesson.create({
@@ -335,6 +352,14 @@ export class LessonsService {
 
     try {
       updated = await this.prisma.$transaction(async (tx) => {
+        // Тему и домашнее задание можно править и в закрытом месяце
+        if (teacherChanged || timeChanged) {
+          await assertPeriodsOpen(tx, organizationId, [
+            lesson.startsAt,
+            startsAt,
+          ]);
+        }
+
         // Условия защищают от параллельной отмены и выплаты
         const { count } = await tx.lesson.updateMany({
           where: {
@@ -392,6 +417,8 @@ export class LessonsService {
     }
 
     const canceled = await this.prisma.$transaction(async (tx) => {
+      await assertPeriodsOpen(tx, organizationId, [lesson.startsAt]);
+
       // Условие payoutExpenseId: null защищает от параллельной выплаты
       const { count } = await tx.lesson.updateMany({
         where: {
@@ -452,6 +479,8 @@ export class LessonsService {
     }
 
     const deleted = await this.prisma.$transaction(async (tx) => {
+      await assertPeriodsOpen(tx, organizationId, [lesson.startsAt]);
+
       // Условия защищают от параллельной отмены, удаления или выплаты
       const { count } = await tx.lesson.updateMany({
         where: {

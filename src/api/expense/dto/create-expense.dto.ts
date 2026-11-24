@@ -25,7 +25,7 @@ export const EXPENSE_STATUSES = ['PAID', 'PENDING', 'CANCELED'] as const;
 
 export const expenseCategorySchema = z.enum(EXPENSE_CATEGORIES).meta({
   description:
-    'Expense category: rent, teacher salary, materials, marketing, utilities, software, household, taxes or other.',
+    'Expense category: rent, staff salary (teacher payouts are created via POST /payouts), materials, marketing, utilities, software, household, taxes or other.',
   example: 'RENT',
 });
 
@@ -60,11 +60,6 @@ export const expenseDescriptionSchema = z.string().trim().min(3).max(200).meta({
   example: 'Аренда помещения за октябрь',
 });
 
-export const expenseTeacherIdSchema = z.uuid().meta({
-  description: 'Teacher who received the salary (SALARY category only).',
-  example: '01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b',
-});
-
 export const createExpenseSchema = z
   .object({
     spentOn: expenseSpentOnSchema,
@@ -80,13 +75,10 @@ export const createExpenseSchema = z
         example: 'Счёт № 124',
       }),
     ),
-    teacherId: optionalText(expenseTeacherIdSchema),
+    // Зарплата преподавателю проводится только через POST /payouts:
+    // там расход привязывается к занятиям и не даёт оплатить их дважды
   })
   .strict()
-  .refine((dto) => !dto.teacherId || dto.category === 'SALARY', {
-    message: 'teacherId is allowed only for SALARY expenses',
-    path: ['teacherId'],
-  })
   .meta({
     id: 'CreateExpenseRequest',
     description: 'Payload for registering a school expense.',

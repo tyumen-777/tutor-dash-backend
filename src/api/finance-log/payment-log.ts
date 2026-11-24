@@ -2,7 +2,7 @@ import type { Prisma } from '../../generated/prisma/client.js';
 
 // Тексты журнала собираются в момент операции и дальше не меняются
 
-const METHOD_LABELS: Record<string, string> = {
+export const METHOD_LABELS: Record<string, string> = {
   CASH: 'наличные',
   CARD: 'карта',
   TRANSFER: 'перевод',

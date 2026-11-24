@@ -7,6 +7,14 @@ export const financeLogActionSchema = z
     example: 'UPDATED',
   });
 
+export const financeLogEntitySchema = z
+  .enum(['PAYMENT', 'PAYOUT', 'PERIOD'])
+  .meta({
+    description:
+      'What the operation was made on: a student payment, a teacher payout or closing / reopening a month.',
+    example: 'PAYOUT',
+  });
+
 export const listFinanceLogsQuerySchema = z
   .object({
     from: z.iso.date().optional().meta({
@@ -20,6 +28,7 @@ export const listFinanceLogsQuerySchema = z
       example: '2026-11-30',
     }),
     action: financeLogActionSchema.optional(),
+    entityType: financeLogEntitySchema.optional(),
     studentId: z.uuid().optional().meta({
       description: 'Only operations related to this student.',
       example: '01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b',

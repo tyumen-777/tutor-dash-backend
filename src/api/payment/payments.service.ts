@@ -23,6 +23,7 @@ import {
   studentName,
   toJson,
 } from '../finance-log/payment-log.js';
+import { assertPeriodsOpen } from '../shared/period-lock.js';
 import type { CreatePaymentDto } from './dto/create-payment.dto.js';
 import type { ListPaymentsQueryDto } from './dto/list-payments-query.dto.js';
 import type {
@@ -153,6 +154,8 @@ export class PaymentsService {
     const amount = dto.amount.toFixed(2);
 
     const payment = await this.prisma.$transaction(async (tx) => {
+      await assertPeriodsOpen(tx, organizationId, [dto.paidOn]);
+
       const subscription = await tx.studentSubscription.create({
         data: {
           organizationId,
@@ -224,12 +227,16 @@ export class PaymentsService {
       });
 
       this.assertNotInFuture(dto.paidOn, organization.timezone);
-      this.assertMonthOpen(
-        payment.paidAt.toISOString().slice(0, 10),
-        dto.paidOn,
-        organization.timezone,
-      );
     }
+
+    const paidOn = this.toPaidOn(payment.paidAt);
+    // В закрытом месяце можно поправить только комментарий
+    const changesMoney =
+      (dto.amount !== undefined && !payment.amount.equals(dto.amount)) ||
+      (dto.lessonsCount !== undefined &&
+        dto.lessonsCount !== payment.subscription?.lessonsTotal) ||
+      (dto.paidOn !== undefined && dto.paidOn !== paidOn) ||
+      (dto.method !== undefined && dto.method !== payment.method);
 
     const { subscription } = payment;
 
@@ -240,6 +247,13 @@ export class PaymentsService {
     const amount = dto.amount?.toFixed(2);
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      if (changesMoney) {
+        await assertPeriodsOpen(tx, organizationId, [
+          paidOn,
+          dto.paidOn ?? paidOn,
+        ]);
+      }
+
       // Условное обновление блокирует строку оплаты до конца транзакции:
       // параллельная отмена дождётся нас или, наоборот, мы получим count = 0
       const { count } = await tx.payment.updateMany({
@@ -326,6 +340,10 @@ export class PaymentsService {
     }
 
     const canceled = await this.prisma.$transaction(async (tx) => {
+      await assertPeriodsOpen(tx, organizationId, [
+        this.toPaidOn(payment.paidAt),
+      ]);
+
       const { count } = await tx.payment.updateMany({
         where: { id, organizationId, status: PaymentStatus.COMPLETED },
         data: { status: PaymentStatus.CANCELED },
@@ -523,29 +541,6 @@ export class PaymentsService {
     }
   }
 
-  /**
-   * Прошлые месяцы считаются закрытыми: перенос даты в них или из них
-   * переписал бы доход за период, по которому уже подведены итоги.
-   * Дату можно двигать только внутри текущего месяца школы.
-   */
-  private assertMonthOpen(
-    currentPaidOn: string,
-    nextPaidOn: string,
-    timezone: string,
-  ): void {
-    if (currentPaidOn === nextPaidOn) {
-      return;
-    }
-
-    const monthStart = `${this.schoolToday(timezone).slice(0, 7)}-01`;
-
-    if (currentPaidOn < monthStart || nextPaidOn < monthStart) {
-      throw new ConflictException(
-        'Payment date cannot be moved into or out of a closed month',
-      );
-    }
-  }
-
   private schoolToday(timezone: string): string {
     return new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,
@@ -566,6 +561,10 @@ export class PaymentsService {
   // Храним полдень UTC, чтобы дата оплаты не съезжала при смене часового пояса
   private toPaidAt(date: string): Date {
     return new Date(`${date}T12:00:00.000Z`);
+  }
+
+  private toPaidOn(paidAt: Date): string {
+    return paidAt.toISOString().slice(0, 10);
   }
 
   private getOrganizationId(session: OrganizationSession): string {

@@ -16,12 +16,12 @@ export const paymentMethodSchema = z
 
 export const paymentAmountSchema = z.coerce
   .number()
-  .nonnegative()
+  .positive()
   .max(9_999_999_999.99)
   .multipleOf(0.01)
   .meta({
     description:
-      'Amount in the organization currency. Zero is allowed for free / bonus packages.',
+      'Amount in the organization currency; must be greater than zero.',
     example: 12000,
   });
 

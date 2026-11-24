@@ -8,6 +8,8 @@ import { Prisma } from '../../generated/prisma/client.js';
 import {
   ExpenseCategory,
   ExpenseStatus,
+  FinanceLogAction,
+  FinanceLogEntity,
   LessonStatus,
 } from '../../generated/prisma/enums.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
@@ -17,7 +19,9 @@ import {
   startOfSchoolDay,
 } from '../dashboard/school-date.js';
 import type { ExpenseResponseDto } from '../expense/dto/expense-response.dto.js';
+import { describePayoutCreated } from '../finance-log/payout-log.js';
 import { ExpensesService } from '../expense/expenses.service.js';
+import { assertPeriodsOpen } from '../shared/period-lock.js';
 import type { CreatePayoutDto } from './dto/create-payout.dto.js';
 import type { PayoutReportQueryDto } from './dto/payout-report-query.dto.js';
 import type { PayoutReportResponseDto } from './dto/payout-report-response.dto.js';
@@ -131,6 +135,9 @@ export class PayoutsService {
     };
 
     const expenseId = await this.prisma.$transaction(async (tx) => {
+      // Выплата — расход в месяце даты выплаты
+      await assertPeriodsOpen(tx, organizationId, [dto.paidOn]);
+
       const due = await tx.lesson.aggregate({
         where: unpaidLessons,
         _sum: { teacherPay: true },
@@ -174,9 +181,10 @@ export class PayoutsService {
 
       // Между подсчётом и привязкой часть занятий могла уйти в другую
       // выплату, поэтому сумма пересчитывается по привязанным
-      const { _sum } = await tx.lesson.aggregate({
+      const { _sum, _count } = await tx.lesson.aggregate({
         where: { payoutExpenseId: expense.id },
         _sum: { teacherPay: true },
+        _count: { _all: true },
       });
       const amount = _sum.teacherPay ?? new Prisma.Decimal(0);
 
@@ -190,6 +198,26 @@ export class PayoutsService {
           data: { amount },
         });
       }
+
+      await tx.financeLog.create({
+        data: {
+          organizationId,
+          entityType: FinanceLogEntity.PAYOUT,
+          entityId: expense.id,
+          teacherId: teacher.id,
+          action: FinanceLogAction.CREATED,
+          description: describePayoutCreated({
+            teacherName: teacher.fullName,
+            amount: amount.toFixed(2),
+            currency: organization.currency,
+            lessonsCount: _count._all,
+            method: dto.method,
+            paidOn: dto.paidOn,
+            period: { from: dto.from, to: dto.to },
+          }),
+          actorUserId: session.user.id,
+        },
+      });
 
       return expense.id;
     });

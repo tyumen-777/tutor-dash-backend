@@ -8,7 +8,6 @@ import {
   expenseEditableStatusSchema,
   expenseRecipientSchema,
   expenseSpentOnSchema,
-  expenseTeacherIdSchema,
 } from './create-expense.dto.js';
 
 export const updateExpenseSchema = z
@@ -32,8 +31,12 @@ export const updateExpenseSchema = z
       description: 'Free-form comment; an empty string clears it.',
       example: 'Счёт № 124',
     }),
-    // null отвязывает преподавателя
-    teacherId: expenseTeacherIdSchema.nullable().optional(),
+    // Привязать преподавателя можно только выплатой через POST /payouts;
+    // здесь допускается лишь отвязка у старых ручных расходов
+    teacherId: z.null().optional().meta({
+      description:
+        'Only null is accepted: unlinks the teacher from a manual expense. Teacher salaries are created via POST /payouts.',
+    }),
   })
   .strict()
   .meta({

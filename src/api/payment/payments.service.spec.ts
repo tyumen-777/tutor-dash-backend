@@ -38,8 +38,19 @@ function setup(options: {
   paymentUpdated?: number;
   packageUpdated?: number;
   fresh?: { lessonsTotal: number; lessonsLeft: number };
+  closedMonth?: string;
 }) {
   const tx = {
+    $queryRaw: vi.fn().mockResolvedValue([{ timezone: 'Europe/Moscow' }]),
+    periodLock: {
+      findFirst: vi
+        .fn()
+        .mockResolvedValue(
+          options.closedMonth
+            ? { month: new Date(`${options.closedMonth}-01T00:00:00.000Z`) }
+            : null,
+        ),
+    },
     payment: {
       updateMany: vi
         .fn()
@@ -230,62 +241,64 @@ describe('PaymentsService closed months', () => {
     vi.useRealTimers();
   });
 
-  // Оплата в тестовых данных — от 10.11.2026
-  function at(now: string) {
+  // Оплата в тестовых данных — от 10.11.2026, ноябрь закрыт
+  function setupClosed() {
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date(now));
+    vi.setSystemTime(new Date('2026-12-05T09:00:00.000Z'));
+
+    return setup({ closedMonth: '2026-11' });
   }
 
-  it('moves the date within the current month', async () => {
-    at('2026-11-24T09:00:00.000Z');
-    const { service, prisma } = setup({});
+  it('moves the date within an open month', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-24T09:00:00.000Z'));
+    const { service, tx } = setup({});
 
     await service.updatePayment(session, 'pay-1', { paidOn: '2026-11-20' });
 
-    expect(prisma.$transaction).toHaveBeenCalled();
-  });
-
-  it('rejects moving the date into a previous month', async () => {
-    at('2026-11-24T09:00:00.000Z');
-    const { service, prisma } = setup({});
-
-    await expect(
-      service.updatePayment(session, 'pay-1', { paidOn: '2026-10-31' }),
-    ).rejects.toThrow('closed month');
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.periodLock.findFirst).toHaveBeenCalled();
+    expect(tx.payment.updateMany).toHaveBeenCalled();
   });
 
   it('rejects moving a payment out of a closed month', async () => {
-    at('2026-12-05T09:00:00.000Z');
-    const { service } = setup({});
+    const { service, tx } = setupClosed();
 
     await expect(
       service.updatePayment(session, 'pay-1', { paidOn: '2026-12-01' }),
-    ).rejects.toBeInstanceOf(ConflictException);
-    await expect(
-      service.updatePayment(session, 'pay-1', { paidOn: '2026-11-12' }),
-    ).rejects.toThrow('closed month');
+    ).rejects.toThrow('Period 2026-11 is closed');
+    expect(tx.payment.updateMany).not.toHaveBeenCalled();
   });
 
-  it('allows other edits of a closed-month payment when the date is unchanged', async () => {
-    at('2026-12-05T09:00:00.000Z');
-    const { service, prisma } = setup({});
+  it('rejects changing the amount', async () => {
+    const { service, tx } = setupClosed();
+
+    await expect(
+      service.updatePayment(session, 'pay-1', { amount: 9000 }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(tx.payment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('allows editing the comment with unchanged other fields', async () => {
+    const { service, tx } = setupClosed();
 
     await service.updatePayment(session, 'pay-1', {
       paidOn: '2026-11-10',
+      amount: 8000,
+      lessonsCount: 8,
+      method: 'CASH',
       comment: 'уточнение',
     });
 
-    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(tx.periodLock.findFirst).not.toHaveBeenCalled();
+    expect(tx.payment.updateMany).toHaveBeenCalled();
   });
 
-  it('closes the month by the school calendar, not UTC', async () => {
-    // 30.11 22:00 UTC — уже 1 декабря в Москве
-    at('2026-11-30T22:00:00.000Z');
-    const { service } = setup({});
+  it('rejects canceling', async () => {
+    const { service, tx } = setupClosed();
 
-    await expect(
-      service.updatePayment(session, 'pay-1', { paidOn: '2026-11-11' }),
-    ).rejects.toThrow('closed month');
+    await expect(service.cancelPayment(session, 'pay-1')).rejects.toThrow(
+      'is closed',
+    );
+    expect(tx.payment.updateMany).not.toHaveBeenCalled();
   });
 });

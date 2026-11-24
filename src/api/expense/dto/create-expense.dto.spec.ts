@@ -27,16 +27,11 @@ describe('createExpenseSchema', () => {
     });
   });
 
-  it('accepts teacher for salary', () => {
-    const teacherId = '01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b';
-
+  it('accepts salary without a teacher', () => {
     expect(
-      createExpenseSchema.parse({
-        ...validExpense,
-        category: 'SALARY',
-        teacherId,
-      }).teacherId,
-    ).toBe(teacherId);
+      createExpenseSchema.parse({ ...validExpense, category: 'SALARY' })
+        .category,
+    ).toBe('SALARY');
   });
 
   it.each([
@@ -47,9 +42,13 @@ describe('createExpenseSchema', () => {
     ['canceled status', { status: 'CANCELED' }],
     ['short recipient', { recipient: 'A' }],
     ['short description', { description: 'Ок' }],
+    // Зарплата преподавателю проводится только через POST /payouts
     [
-      'teacher for non-salary',
-      { teacherId: '01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b' },
+      'teacher for salary',
+      {
+        category: 'SALARY',
+        teacherId: '01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b',
+      },
     ],
     ['unknown field', { currency: 'USD' }],
   ])('rejects %s', (_, override) => {
@@ -66,10 +65,11 @@ describe('updateExpenseSchema', () => {
     ).toEqual({ comment: '', teacherId: null });
   });
 
-  it('rejects canceled status', () => {
-    expect(updateExpenseSchema.safeParse({ status: 'CANCELED' }).success).toBe(
-      false,
-    );
+  it.each([
+    ['canceled status', { status: 'CANCELED' }],
+    ['teacher binding', { teacherId: '01929b3e-7c4a-7d2e-9f6b-1c2d3e4f5a6b' }],
+  ])('rejects %s', (_, dto) => {
+    expect(updateExpenseSchema.safeParse(dto).success).toBe(false);
   });
 });
 

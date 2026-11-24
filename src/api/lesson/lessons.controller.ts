@@ -107,7 +107,7 @@ export class LessonsController {
   })
   @ApiBadRequestResponse({
     description:
-      'Ученик или преподаватель не найден либо в архиве, или занятие в будущем.',
+      'Ученик или преподаватель не найден либо в архиве, занятие в будущем или (для преподавателя) старше 7 дней.',
   })
   @ApiConflictResponse({
     description:

@@ -1,8 +1,14 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 
 import type { Prisma } from '../../generated/prisma/client.js';
+import { FinanceLogEntity } from '../../generated/prisma/enums.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import { addDays, startOfSchoolDay } from '../dashboard/school-date.js';
+import { parseMemberRoles } from '../teacher/teacher-access.js';
 import type { FinanceLogListResponseDto } from './dto/finance-log-response.dto.js';
 import type { ListFinanceLogsQueryDto } from './dto/list-finance-logs-query.dto.js';
 
@@ -14,7 +20,11 @@ type OrganizationSession = {
 const financeLogInclude = {
   actor: { select: { id: true, name: true } },
   student: { select: { id: true, firstName: true, lastName: true } },
+  teacher: { select: { id: true, fullName: true } },
 } satisfies Prisma.FinanceLogInclude;
+
+// Совпадает с доступом к GET /expenses и /payouts: зарплаты видны не всем
+const PAYOUT_ROLES = ['owner', 'admin', 'accountant'];
 
 @Injectable()
 export class FinanceLogsService {
@@ -55,6 +65,23 @@ export class FinanceLogsService {
       where.studentId = query.studentId;
     }
 
+    const canSeePayouts = await this.canSeePayouts(organizationId, session);
+
+    // Выплаты и закрытие месяцев видны тем же ролям, что и расходы
+    if (
+      !canSeePayouts &&
+      query.entityType &&
+      query.entityType !== FinanceLogEntity.PAYMENT
+    ) {
+      throw new ForbiddenException('Insufficient organization role');
+    }
+
+    if (query.entityType) {
+      where.entityType = query.entityType;
+    } else if (!canSeePayouts) {
+      where.entityType = FinanceLogEntity.PAYMENT;
+    }
+
     const [logs, total] = await this.prisma.$transaction([
       this.prisma.financeLog.findMany({
         where,
@@ -76,10 +103,27 @@ export class FinanceLogsService {
         description: log.description,
         actor: log.actor,
         student: log.student,
+        teacher: log.teacher,
       })),
       total,
       limit: query.limit,
       offset: query.offset,
     };
+  }
+
+  private async canSeePayouts(
+    organizationId: string,
+    session: OrganizationSession,
+  ): Promise<boolean> {
+    const member = await this.prisma.member.findUnique({
+      where: {
+        organizationId_userId: { organizationId, userId: session.user.id },
+      },
+      select: { role: true },
+    });
+
+    return parseMemberRoles(member?.role ?? '').some((role) =>
+      PAYOUT_ROLES.includes(role),
+    );
   }
 }

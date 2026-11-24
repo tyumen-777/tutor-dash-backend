@@ -36,6 +36,7 @@ model user {
   createdExpenses Expense[]
   deletedLessons  Lesson[]
   financeLogs     FinanceLog[]
+  periodLocks     PeriodLock[]
 }
 
 model session {
@@ -115,6 +116,7 @@ model organization {
   expenses           Expense[]
   studyLevels        StudyLevel[]
   financeLogs        FinanceLog[]
+  periodLocks        PeriodLock[]
 }
 
 model member {
@@ -189,6 +191,8 @@ enum SubscriptionUsageType {
 
 enum FinanceLogEntity {
   PAYMENT
+  PAYOUT // выплата преподавателю (расход SALARY из POST /payouts)
+  PERIOD // закрытие / открытие месяца (PeriodLock)
 }
 
 enum FinanceLogAction {
@@ -365,6 +369,7 @@ model Teacher {
   lessons       Lesson[]
   expenses      Expense[]
   invitations   invitation[]
+  financeLogs   FinanceLog[]
 
   @@index([organizationId, isActive])
   @@index([organizationId, fullName])
@@ -484,6 +489,8 @@ model FinanceLog {
   entityId       String           @db.Uuid
   // Ученик, к которому относится операция (для оплат)
   studentId      String?          @db.Uuid
+  // Преподаватель, к которому относится операция (для выплат)
+  teacherId      String?          @db.Uuid
   action         FinanceLogAction
   // Готовый текст на момент операции: не меняется при переименовании ученика
   description    String
@@ -494,15 +501,33 @@ model FinanceLog {
 
   organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   student      Student?     @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  teacher      Teacher?     @relation(fields: [teacherId], references: [id], onDelete: SetNull)
   actor        user         @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
 
   @@index([organizationId, createdAt])
   @@index([entityType, entityId, createdAt])
   @@index([studentId])
+  @@index([teacherId])
   @@map("finance_logs")
 }
 
 // Расход школы: аренда, зарплата, материалы и т. п.
+// Закрытый месяц: оплаты, занятия и расходы с датой внутри него
+// нельзя вносить, менять и отменять, пока владелец не откроет месяц
+model PeriodLock {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String
+  month          DateTime @db.Date // первое число месяца
+  closedByUserId String
+  createdAt      DateTime @default(now()) @db.Timestamptz
+
+  organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  closedBy     user         @relation(fields: [closedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, month])
+  @@map("period_locks")
+}
+
 model Expense {
   id              String          @id @default(uuid(7)) @db.Uuid
   organizationId  String
