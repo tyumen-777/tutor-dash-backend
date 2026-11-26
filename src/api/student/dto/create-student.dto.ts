@@ -94,8 +94,15 @@ export const studentTimezoneSchema = z
     example: 'Asia/Yekaterinburg',
   });
 
-// Приостановка и архив — отдельные действия над существующим учеником
+// Новый ученик — лид или активный
 export const studentEditableStatusSchema = z.enum(['LEAD', 'ACTIVE']);
+
+// Существующего ученика можно ещё поставить на паузу; архив — отдельное действие
+export const studentUpdatableStatusSchema = z.enum([
+  'LEAD',
+  'ACTIVE',
+  'PAUSED',
+]);
 
 export const studentNoteSchema = z.string().trim().max(2000).meta({
   description: 'Free-form note.',

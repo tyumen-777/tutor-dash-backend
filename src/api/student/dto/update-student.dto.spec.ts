@@ -45,6 +45,12 @@ describe('updateStudentSchema', () => {
     });
   });
 
+  it('accepts the paused status', () => {
+    expect(updateStudentSchema.parse({ status: 'PAUSED' })).toEqual({
+      status: 'PAUSED',
+    });
+  });
+
   it.each([
     ['empty first name', { firstName: ' ' }],
     ['null first name', { firstName: null }],

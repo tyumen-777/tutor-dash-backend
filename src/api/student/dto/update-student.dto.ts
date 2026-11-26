@@ -3,7 +3,6 @@ import { z } from 'zod';
 import {
   clearableText,
   studentBirthDateSchema,
-  studentEditableStatusSchema,
   studentEmailSchema,
   studentFirstNameSchema,
   studentLastNameSchema,
@@ -13,6 +12,7 @@ import {
   studentTeacherIdSchema,
   studentTelegramSchema,
   studentTimezoneSchema,
+  studentUpdatableStatusSchema,
 } from './create-student.dto.js';
 
 export const updateStudentSchema = z
@@ -27,9 +27,9 @@ export const updateStudentSchema = z
     levelId: clearableText(studentLevelIdSchema),
     birthDate: clearableText(studentBirthDateSchema),
     timezone: clearableText(studentTimezoneSchema),
-    status: studentEditableStatusSchema.optional().meta({
+    status: studentUpdatableStatusSchema.optional().meta({
       description:
-        'LEAD or ACTIVE; only a lead or an active student can be switched.',
+        'LEAD, ACTIVE or PAUSED. An archived student is returned via POST /students/:id/restore.',
       example: 'ACTIVE',
     }),
     note: clearableText(studentNoteSchema),

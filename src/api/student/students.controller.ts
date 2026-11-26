@@ -140,7 +140,7 @@ export class StudentsController {
   @ApiOperation({
     summary: 'Изменение ученика',
     description:
-      'Меняет данные ученика: имя, фамилию, контакты, преподавателя, уровень, дату рождения, часовой пояс, статус (лид или активный) и заметку. Пустая строка или null очищает необязательное поле.',
+      'Меняет данные ученика: имя, фамилию, контакты, преподавателя, уровень, дату рождения, часовой пояс, статус (лид, активный или пауза) и заметку. Пустая строка или null очищает необязательное поле.',
   })
   @ApiOkResponse({
     description: 'Ученик изменён.',
@@ -152,7 +152,8 @@ export class StudentsController {
   })
   @ApiNotFoundResponse({ description: 'Ученик не найден.' })
   @ApiConflictResponse({
-    description: 'Статус приостановленного или архивного ученика не меняется.',
+    description:
+      'Статус архивного ученика не меняется: его нужно восстановить из архива.',
   })
   updateStudent(
     @Session() session: UserSession,
@@ -160,6 +161,50 @@ export class StudentsController {
     @Body({ schema: updateStudentSchema }) body: UpdateStudentDto,
   ): Promise<StudentResponseDto> {
     return this.studentsService.updateStudent(session, id, body);
+  }
+
+  @RequireActiveOrg()
+  @OrgRoles(['owner', 'admin', 'manager'])
+  @Post(':id/archive')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Перевод ученика в архив',
+    description:
+      'Ученик закончил обучение: история занятий и оплат остаётся, будущие запланированные занятия отменяются, шаблоны расписания закрываются. Остаток оплаченных занятий сохраняется. Архивному ученику нельзя внести занятие или оплату.',
+  })
+  @ApiOkResponse({
+    description: 'Ученик переведён в архив.',
+    standardSchema: studentResponseSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Ученик не найден.' })
+  @ApiConflictResponse({ description: 'Ученик уже в архиве.' })
+  archiveStudent(
+    @Session() session: UserSession,
+    @Param('id', { schema: z.uuid() }) id: string,
+  ): Promise<StudentResponseDto> {
+    return this.studentsService.archiveStudent(session, id);
+  }
+
+  @RequireActiveOrg()
+  @OrgRoles(['owner', 'admin', 'manager'])
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Восстановление ученика из архива',
+    description:
+      'Возвращает ученика из архива в статус «активный» вместе с историей и остатком занятий. Расписание нужно составить заново.',
+  })
+  @ApiOkResponse({
+    description: 'Ученик восстановлен.',
+    standardSchema: studentResponseSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Ученик не найден.' })
+  @ApiConflictResponse({ description: 'Ученик не в архиве.' })
+  restoreStudent(
+    @Session() session: UserSession,
+    @Param('id', { schema: z.uuid() }) id: string,
+  ): Promise<StudentResponseDto> {
+    return this.studentsService.restoreStudent(session, id);
   }
 
   @RequireActiveOrg()

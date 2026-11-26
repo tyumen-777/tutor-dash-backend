@@ -7,11 +7,13 @@ import {
 
 import { Prisma } from '../../generated/prisma/client.js';
 import {
+  LessonStatus,
   PaymentStatus,
   StudentStatus,
   SubscriptionStatus,
 } from '../../generated/prisma/enums.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+import { schoolToday } from '../dashboard/school-date.js';
 import {
   resolveTeacherScope,
   type TeacherScope,
@@ -195,14 +197,14 @@ export class StudentsService {
     const organizationId = this.getOrganizationId(session);
     const student = await this.findStudent(organizationId, id);
 
+    // Из архива ученика возвращает только POST /students/:id/restore
     if (
       dto.status !== undefined &&
       dto.status !== student.status &&
-      student.status !== StudentStatus.LEAD &&
-      student.status !== StudentStatus.ACTIVE
+      student.status === StudentStatus.ARCHIVED
     ) {
       throw new ConflictException(
-        'Only a lead or an active student can change status',
+        'Archived student status cannot be changed; restore the student instead',
       );
     }
 
@@ -251,6 +253,89 @@ export class StudentsService {
 
       throw error;
     }
+  }
+
+  /**
+   * Переводит ученика в архив: история занятий и оплат остаётся,
+   * будущие запланированные занятия отменяются, шаблоны расписания
+   * закрываются сегодняшней датой. Неизрасходованный остаток пакетов
+   * сохраняется и вернётся вместе с учеником.
+   */
+  async archiveStudent(
+    session: OrganizationSession,
+    id: string,
+  ): Promise<StudentResponseDto> {
+    const organizationId = this.getOrganizationId(session);
+    const student = await this.findStudent(organizationId, id, {
+      organization: { select: { timezone: true } },
+    });
+
+    if (student.status === StudentStatus.ARCHIVED) {
+      throw new ConflictException('Student is already archived');
+    }
+
+    const now = new Date();
+    const today = new Date(
+      `${schoolToday(student.organization.timezone, now)}T00:00:00.000Z`,
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.student.updateMany({
+        where: { id, organizationId, status: { not: StudentStatus.ARCHIVED } },
+        data: { status: StudentStatus.ARCHIVED },
+      });
+
+      if (count === 0) {
+        throw new ConflictException('Student is already archived');
+      }
+
+      await tx.lesson.updateMany({
+        where: {
+          organizationId,
+          status: LessonStatus.SCHEDULED,
+          startsAt: { gte: now },
+          participants: { some: { studentId: id } },
+        },
+        data: {
+          status: LessonStatus.CANCELED,
+          cancelReason: 'Ученик переведён в архив',
+        },
+      });
+
+      // Шаблоны, которые ещё не начали действовать, не нужны
+      await tx.scheduleRule.deleteMany({
+        where: { studentId: id, validFrom: { gt: today } },
+      });
+
+      await tx.scheduleRule.updateMany({
+        where: {
+          studentId: id,
+          OR: [{ validTo: null }, { validTo: { gt: today } }],
+        },
+        data: { validTo: today },
+      });
+    });
+
+    return this.getStudent(session, id);
+  }
+
+  async restoreStudent(
+    session: OrganizationSession,
+    id: string,
+  ): Promise<StudentResponseDto> {
+    const organizationId = this.getOrganizationId(session);
+    await this.findStudent(organizationId, id);
+
+    const { count } = await this.prisma.student.updateMany({
+      where: { id, organizationId, status: StudentStatus.ARCHIVED },
+      data: { status: StudentStatus.ACTIVE },
+    });
+
+    if (count === 0) {
+      throw new ConflictException('Student is not archived');
+    }
+
+    return this.getStudent(session, id);
   }
 
   async deleteStudent(session: OrganizationSession, id: string): Promise<void> {

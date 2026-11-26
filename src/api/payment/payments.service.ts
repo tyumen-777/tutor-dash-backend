@@ -10,6 +10,7 @@ import {
   FinanceLogAction,
   FinanceLogEntity,
   PaymentStatus,
+  StudentStatus,
   SubscriptionStatus,
   SubscriptionUsageType,
 } from '../../generated/prisma/enums.js';
@@ -144,11 +145,16 @@ export class PaymentsService {
 
     const student = await this.prisma.student.findFirst({
       where: { id: dto.studentId, organizationId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
 
     if (!student) {
       throw new BadRequestException('Student not found');
+    }
+
+    // Сначала ученика нужно вернуть из архива
+    if (student.status === StudentStatus.ARCHIVED) {
+      throw new BadRequestException('Student is archived');
     }
 
     const amount = dto.amount.toFixed(2);
