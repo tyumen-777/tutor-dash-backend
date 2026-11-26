@@ -14,6 +14,7 @@ import { PeriodLockModule } from './period-lock/period-lock.module.js';
 import { StudentModule } from './student/student.module.js';
 import { StudyLevelModule } from './study-level/study-level.module.js';
 import { TeacherModule } from './teacher/teacher.module.js';
+import { TelegramModule } from './telegram/telegram.module.js';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { TeacherModule } from './teacher/teacher.module.js';
     LessonModule,
     DashboardModule,
     MeModule,
+    TelegramModule,
     HealthModule,
   ],
 })

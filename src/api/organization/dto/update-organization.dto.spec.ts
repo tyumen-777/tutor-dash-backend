@@ -29,3 +29,26 @@ describe('updateOrganizationSchema', () => {
     expect(updateOrganizationSchema.safeParse(body).success).toBe(false);
   });
 });
+
+describe('updateOrganizationSchema lowBalanceNotifyAt', () => {
+  it('accepts a threshold or null', () => {
+    expect(
+      updateOrganizationSchema.safeParse({ lowBalanceNotifyAt: 2 }).success,
+    ).toBe(true);
+    expect(
+      updateOrganizationSchema.safeParse({ lowBalanceNotifyAt: null }).success,
+    ).toBe(true);
+  });
+
+  it('rejects out-of-range values', () => {
+    expect(
+      updateOrganizationSchema.safeParse({ lowBalanceNotifyAt: -1 }).success,
+    ).toBe(false);
+    expect(
+      updateOrganizationSchema.safeParse({ lowBalanceNotifyAt: 21 }).success,
+    ).toBe(false);
+    expect(
+      updateOrganizationSchema.safeParse({ lowBalanceNotifyAt: 1.5 }).success,
+    ).toBe(false);
+  });
+});

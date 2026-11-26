@@ -89,16 +89,21 @@ model verification {
 }
 
 model organization {
-  id        String   @id
-  name      String
-  slug      String   @unique
-  logo      String?
-  metadata  Json?
+  id                    String   @id
+  name                  String
+  slug                  String   @unique
+  logo                  String?
+  metadata              Json?
   // IANA timezone школы: в нём задаются шаблоны расписания
-  timezone  String   @default("Europe/Moscow")
-  currency  String   @default("RUB") @db.Char(3)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  timezone              String   @default("Europe/Moscow")
+  currency              String   @default("RUB") @db.Char(3)
+  // Уведомить ученика в Telegram, когда оплаченных занятий осталось столько;
+  // null — уведомление выключено
+  lowBalanceNotifyAt    Int?     @default(1)
+  // Сообщать ученику в Telegram о каждом проведённом занятии с остатком
+  notifyLessonCompleted Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   members            member[]
   invitations        invitation[]
@@ -117,6 +122,9 @@ model organization {
   studyLevels        StudyLevel[]
   financeLogs        FinanceLog[]
   periodLocks        PeriodLock[]
+  telegramLinkTokens TelegramLinkToken[]
+  telegramLinks      TelegramLink[]
+  notifications      Notification[]
 }
 
 model member {
@@ -269,17 +277,20 @@ model Student {
   createdAt      DateTime      @default(now()) @db.Timestamptz
   updatedAt      DateTime      @updatedAt @db.Timestamptz
 
-  organization  organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user          user?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
-  teacher       Teacher?              @relation(fields: [teacherId], references: [id], onDelete: SetNull)
-  level         StudyLevel?           @relation(fields: [levelId], references: [id], onDelete: Restrict)
-  guardians     StudentGuardian[]
-  subscriptions StudentSubscription[]
-  usages        SubscriptionUsage[]
-  payments      Payment[]
-  scheduleRules ScheduleRule[]
-  lessons       LessonParticipant[]
-  financeLogs   FinanceLog[]
+  organization       organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user               user?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  teacher            Teacher?              @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  level              StudyLevel?           @relation(fields: [levelId], references: [id], onDelete: Restrict)
+  guardians          StudentGuardian[]
+  subscriptions      StudentSubscription[]
+  usages             SubscriptionUsage[]
+  payments           Payment[]
+  scheduleRules      ScheduleRule[]
+  lessons            LessonParticipant[]
+  financeLogs        FinanceLog[]
+  telegramLinkTokens TelegramLinkToken[]
+  telegramLinks      TelegramLink[]
+  notifications      Notification[]
 
   @@unique([organizationId, userId])
   @@index([organizationId, status])
@@ -649,4 +660,86 @@ model LessonParticipant {
   @@id([lessonId, studentId])
   @@index([studentId])
   @@map("lesson_participants")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Telegram-уведомления. Бот один на всю платформу; ученик (или родитель)
+// подключает чат по одноразовой ссылке t.me/<bot>?start=<token>.
+// ─────────────────────────────────────────────────────────────
+
+// Одноразовый токен для ссылки подключения: удаляется при использовании
+model TelegramLinkToken {
+  token           String   @id
+  organizationId  String
+  studentId       String   @db.Uuid
+  createdByUserId String
+  expiresAt       DateTime @db.Timestamptz
+  createdAt       DateTime @default(now()) @db.Timestamptz
+
+  organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@index([expiresAt])
+  @@map("telegram_link_tokens")
+}
+
+// Подключённый чат. У ученика может быть несколько чатов (сам и родитель),
+// один чат — у нескольких учеников (родитель двоих детей, разные школы)
+model TelegramLink {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String
+  studentId      String   @db.Uuid
+  chatId         BigInt
+  // Для отображения в карточке ученика: кто подключился
+  username       String?
+  displayName    String?
+  createdAt      DateTime @default(now()) @db.Timestamptz
+
+  organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, chatId])
+  @@index([chatId])
+  @@index([organizationId])
+  @@map("telegram_links")
+}
+
+enum NotificationType {
+  LOW_BALANCE
+  LESSON_COMPLETED
+  // Школа отключила чат от уведомлений ученика
+  CHAT_UNLINKED
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELED
+}
+
+// Очередь исходящих сообщений (outbox). Строка создаётся в той же транзакции,
+// что и событие, и отправляется фоновым воркером
+model Notification {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  organizationId String
+  studentId      String?            @db.Uuid
+  chatId         BigInt
+  type           NotificationType
+  // Готовый текст на момент события
+  text           String
+  status         NotificationStatus @default(PENDING)
+  attempts       Int                @default(0)
+  sendAt         DateTime           @default(now()) @db.Timestamptz
+  sentAt         DateTime?          @db.Timestamptz
+  lastError      String?
+  createdAt      DateTime           @default(now()) @db.Timestamptz
+
+  organization organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student      Student?     @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  @@index([status, sendAt])
+  @@index([studentId, type, createdAt])
+  @@map("notifications")
 }

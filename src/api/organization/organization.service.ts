@@ -14,6 +14,8 @@ const organizationSettingsSelect = {
   slug: true,
   timezone: true,
   currency: true,
+  lowBalanceNotifyAt: true,
+  notifyLessonCompleted: true,
 } as const;
 
 @Injectable()
@@ -35,7 +37,12 @@ export class OrganizationService {
   ): Promise<OrganizationSettingsResponseDto> {
     return this.prisma.organization.update({
       where: { id: this.getOrganizationId(session) },
-      data: { name: dto.name, timezone: dto.timezone },
+      data: {
+        name: dto.name,
+        timezone: dto.timezone,
+        lowBalanceNotifyAt: dto.lowBalanceNotifyAt,
+        notifyLessonCompleted: dto.notifyLessonCompleted,
+      },
       select: organizationSettingsSelect,
     });
   }

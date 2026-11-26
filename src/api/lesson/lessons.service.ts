@@ -29,6 +29,7 @@ import type {
   LessonListResponseDto,
   LessonResponseDto,
 } from './dto/lesson-response.dto.js';
+import { enqueueLessonHeldNotifications } from '../telegram/student-notifications.js';
 import { teacherEarliestLessonStart } from './lesson-backdate.js';
 import { calculateTeacherPay, isLessonDuration } from './lesson-pay.js';
 
@@ -262,10 +263,19 @@ export class LessonsService {
           },
         });
 
-        return tx.lesson.findUniqueOrThrow({
+        const held = await tx.lesson.findUniqueOrThrow({
           where: { id: created.id },
           include: lessonInclude,
         });
+
+        await enqueueLessonHeldNotifications(
+          tx,
+          organizationId,
+          dto.studentId,
+          held,
+        );
+
+        return held;
       });
     } catch (error) {
       if (this.isTeacherOverlapError(error)) {

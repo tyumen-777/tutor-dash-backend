@@ -22,6 +22,15 @@ export const organizationSettingsResponseSchema = z
       description: 'ISO 4217 currency code of the school.',
       examples: ['RUB'],
     }),
+    lowBalanceNotifyAt: z
+      .number()
+      .int()
+      .nullable()
+      .meta({
+        description:
+          'Paid lessons left at which the student gets a Telegram notification; null = off.',
+        examples: [1],
+      }),
   })
   .meta({
     id: 'OrganizationSettingsResponse',
