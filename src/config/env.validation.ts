@@ -54,6 +54,17 @@ const envSchema = z
       .string()
       .regex(/^[A-Za-z0-9_-]{16,256}$/)
       .optional(),
+
+    // Адрес прокси до Bot API (если api.telegram.org недоступен с сервера).
+    // Пусто — запросы идут напрямую в https://api.telegram.org
+    TELEGRAM_API_URL: z
+      .string()
+      .url()
+      .transform((url) => url.replace(/\/+$/, ''))
+      .optional(),
+
+    // Передаётся прокси в заголовке X-Proxy-Secret
+    TELEGRAM_API_PROXY_SECRET: z.string().min(16).optional(),
   })
   .refine((env) => !env.TELEGRAM_WEBHOOK_URL || env.TELEGRAM_WEBHOOK_SECRET, {
     path: ['TELEGRAM_WEBHOOK_SECRET'],

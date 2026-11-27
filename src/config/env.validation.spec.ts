@@ -30,4 +30,16 @@ describe('validateEnv', () => {
     expect(env.TRUSTED_PROXIES).toEqual(['10.0.0.1', '172.16.0.0/12']);
     expect(env.SWAGGER_ENABLED).toBe(true);
   });
+
+  it('strips the trailing slash from the Telegram proxy URL', () => {
+    const env = validateEnv({
+      DATABASE_URL: 'postgresql://root:secret@localhost:5432/tutor_dash_db',
+      BETTER_AUTH_SECRET: 'development-better-auth-secret-change-me',
+      BETTER_AUTH_URL: 'http://localhost:4000',
+      FRONTEND_ORIGIN: 'http://localhost:3000',
+      TELEGRAM_API_URL: 'https://tg-proxy.example.com/',
+    });
+
+    expect(env.TELEGRAM_API_URL).toBe('https://tg-proxy.example.com');
+  });
 });

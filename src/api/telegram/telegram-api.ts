@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import type { Env } from '../../config/index.js';
 
-const API_URL = 'https://api.telegram.org';
+const DEFAULT_API_URL = 'https://api.telegram.org';
 
 // Только поля, которые использует бот
 export type TelegramUser = {
@@ -69,10 +69,17 @@ type ApiResponse<T> =
 export class TelegramApi {
   private readonly logger = new Logger(TelegramApi.name);
   private readonly token: string | undefined;
+  private readonly apiUrl: string;
+  private readonly proxySecret: string | undefined;
   private username: string | undefined;
 
   constructor(config: ConfigService<Env, true>) {
     this.token = config.get('TELEGRAM_BOT_TOKEN', { infer: true });
+    this.apiUrl =
+      config.get('TELEGRAM_API_URL', { infer: true }) ?? DEFAULT_API_URL;
+    this.proxySecret = config.get('TELEGRAM_API_PROXY_SECRET', {
+      infer: true,
+    });
   }
 
   get isEnabled(): boolean {
@@ -141,12 +148,22 @@ export class TelegramApi {
       throw new Error('TELEGRAM_BOT_TOKEN is not set');
     }
 
-    const response = await fetch(`${API_URL}/bot${this.token}/${method}`, {
+    const response = await fetch(`${this.apiUrl}/bot${this.token}/${method}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(this.proxySecret ? { 'x-proxy-secret': this.proxySecret } : {}),
+      },
       body: JSON.stringify(body),
       signal: signal ?? AbortSignal.timeout(15_000),
     });
+    // Прокси или балансировщик может ответить не JSON (например, 403 от nginx)
+    if (!response.headers.get('content-type')?.includes('application/json')) {
+      throw new Error(
+        `Telegram ${method} failed: HTTP ${response.status} without JSON body (check TELEGRAM_API_URL and TELEGRAM_API_PROXY_SECRET)`,
+      );
+    }
+
     const data = (await response.json()) as ApiResponse<T>;
 
     if (!data.ok) {
